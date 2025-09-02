@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Estimation of 2D position, velocity and acceleration from GPS and IMU 
+# (sensors run on different frequencies: GPS (5 Hz) and IMU (100 Hz))
+
 # ============================
 # Simulation parameters
 # ============================
