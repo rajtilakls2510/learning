@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(diffusion_rev LANGUAGES CXX CUDA)
 
-set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/media/riju/New Volume/libtorch")
+set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/media/riju/New Volume2/libtorch")
 
 find_package(Torch CONFIG REQUIRED)
 find_package(OpenCV REQUIRED)

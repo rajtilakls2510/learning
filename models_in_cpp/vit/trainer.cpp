@@ -7,12 +7,17 @@ namespace trainer {
     namespace fs = std::filesystem;
     using namespace MNIST;
     
-    Trainer::Trainer(std::string data_path, std::string checkpoint_path) : data_path(data_path), checkpoint_path(checkpoint_path) {
+    Trainer::Trainer(std::string data_path, std::string checkpoint_path, bool use_cpu) : data_path(data_path), checkpoint_path(checkpoint_path) {
         fs::path cp(checkpoint_path);
         if(!fs::exists(cp)) {
             std::cout << cp << " does not exist. Creating...\n";
             fs::create_directories(cp);    
         }
+        if (!use_cpu) 
+            device = torch::cuda::is_available() ? torch::Device(torch::kCUDA) 
+                                                : torch::Device(torch::kCPU);
+        
+        std::cout << "Using device: " << (device.is_cuda() ? "CUDA" : "CPU") << "\n";
         
         model = vit::ViT(
             /* img_size */ 28, 
@@ -33,13 +38,13 @@ namespace trainer {
             torch::load(*optimizer, (cp / "optim.pth").string());
             std::cout << "Loaded model and optimizer.\n";
         }
-        model->to(torch::kCUDA);
+        model->to(device);
     }
 
     void Trainer::train_step(Batch batch, double* loss, double* accuracy) {
         model->train();
-        auto images = batch.images.to(torch::kCUDA);
-        auto labels = batch.labels.to(torch::kCUDA);
+        auto images = batch.images.to(device);
+        auto labels = batch.labels.to(device);
         labels = labels.to(torch::kLong);
 
         // std::cout << "labels_size: " << labels.sizes() << "\n";
@@ -64,8 +69,8 @@ namespace trainer {
 
     void Trainer::test_step(Batch batch, double* loss, double* accuracy) {
         model->eval();  
-        auto images = batch.images.to(torch::kCUDA);
-        auto labels = batch.labels.to(torch::kCUDA);
+        auto images = batch.images.to(device);
+        auto labels = batch.labels.to(device);
 
 
         labels = labels.to(torch::kLong);
@@ -89,6 +94,7 @@ namespace trainer {
     void Trainer::learn(int epochs, int batch_size) {
 
         Loader loader(data_path, batch_size);
+
         for (int epoch=0; epoch < epochs; epoch++) {
             loader.reset();
 
@@ -103,8 +109,8 @@ namespace trainer {
                     n_batch++;
                     avg_train_loss = avg_train_loss + (1.0 / n_batch) * (loss - avg_train_loss);
                     avg_train_acc = avg_train_acc + (1.0 / n_batch) * (acc - avg_train_acc);
-                    std::cout << "\rEpoch: " << epoch << " Batch: " << n_batch << "/" << loader.get_n_train_batches() << " Train Loss: " << avg_train_loss << " Train Acc: " << avg_train_acc << " ====================================" << std::flush;
                     
+                    std::cout << "\rEpoch: " << epoch << " Batch: " << n_batch << "/" << loader.get_n_train_batches() << " Train Loss: " << avg_train_loss << " Train Acc: " << avg_train_acc << " ====================================" << std::flush;
                 } catch (BatchesExhaustedException& e) { break; }
             }
             std::cout << "\n";
@@ -122,6 +128,7 @@ namespace trainer {
                     avg_test_acc = avg_test_acc + (1.0 / n_batch) * (acc - avg_test_acc);
                     
                     std::cout << "\rEpoch: " << epoch << " Batch: " << n_batch << "/" << loader.get_n_test_batches() << " Test Loss: " << avg_test_loss << " Test Acc: " << avg_test_acc << " ====================================" << std::flush;
+                    
                 } catch(BatchesExhaustedException& e) { break; }
             }
             std::cout << "\n";
