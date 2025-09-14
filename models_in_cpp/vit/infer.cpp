@@ -1,13 +1,15 @@
 #include <torch/torch.h>
-#include <opencv2/opencv.hpp>
+
 #include <iostream>
-#include "vit.h"      
+#include <opencv2/opencv.hpp>
+
 #include "mnist_loader.hpp"
+#include "vit.h"
 
 using namespace MNIST;
 
 // Function to display MNIST image tensor
-void show_image(torch::Tensor img, const std::string &window_name) {
+void show_image(torch::Tensor img, const std::string& window_name) {
     // MNIST image is 1x28x28 (CHW)
     img = img.squeeze().detach().cpu();
     img = img.mul(255).clamp(0, 255).to(torch::kU8);
@@ -24,12 +26,13 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: ./infer <data_path> <checkpoint_path>\n";
         return -1;
     }
-    
+
     bool use_cpu = true;
     torch::Device device{torch::kCPU};
-    if (!use_cpu) 
-        device = torch::cuda::is_available() ? torch::Device(torch::kCUDA) : torch::Device(torch::kCPU);
-    
+    if (!use_cpu)
+        device = torch::cuda::is_available() ? torch::Device(torch::kCUDA)
+                                             : torch::Device(torch::kCPU);
+
     std::cout << "Using device: " << (device.is_cuda() ? "CUDA" : "CPU") << "\n";
 
     std::string data_path = argv[1];
@@ -42,17 +45,18 @@ int main(int argc, char* argv[]) {
     model->eval();
 
     // Data loader
-    Loader loader(data_path, 1); // batch size = 1
+    Loader loader(data_path, 1);  // batch size = 1
     loader.reset();
 
     torch::NoGradGuard no_grad;
     for (int i = 0; i < 100; ++i) {  // Show first 10 images
         Batch b = loader.get_test_batch();
-        auto imgs = b.images.to(device);  
+        auto imgs = b.images.to(device);
         auto logits = model->forward(imgs);
         auto pred = logits.argmax(1);
 
-        std::cout << "Predicted: " << pred[0].item<int>() << " | Actual: " << b.labels[0].item<int>() << "\n";
+        std::cout << "Predicted: " << pred[0].item<int>()
+                  << " | Actual: " << b.labels[0].item<int>() << "\n";
         show_image(b.images[0], "img");
     }
 

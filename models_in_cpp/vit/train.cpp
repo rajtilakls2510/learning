@@ -1,7 +1,8 @@
 #include <iostream>
-#include "vit.h"
+
 #include "mnist_loader.hpp"
 #include "trainer.h"
+#include "vit.h"
 
 using namespace trainer;
 
