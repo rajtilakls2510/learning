@@ -24,9 +24,10 @@ public:
 
 struct Batch {
     torch::Tensor images;
-
     torch::Tensor labels;
-    Batch(torch::Tensor images, torch::Tensor labels) : images(images), labels(labels) {}
+    int batch_size;
+
+    Batch(torch::Tensor images, torch::Tensor labels, int batch_size) : images(images), labels(labels), batch_size(batch_size) {}
 };
 
 class Loader {

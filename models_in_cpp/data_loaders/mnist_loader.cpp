@@ -93,7 +93,7 @@ Batch Loader::get_train_batch() {
         torch::Tensor images_batch = train_images.index_select(0, idx_tensor);
         torch::Tensor labels_batch = train_labels.index_select(0, idx_tensor);
         c_train_batch++;
-        return Batch(images_batch, labels_batch);
+        return Batch(images_batch, labels_batch, batch_size);
     } else {
         throw BatchesExhaustedException("Training batches exhaused");
     }
@@ -105,7 +105,7 @@ Batch Loader::get_test_batch() {
         torch::Tensor images_batch = test_images.index_select(0, idx_tensor);
         torch::Tensor labels_batch = test_labels.index_select(0, idx_tensor);
         c_test_batch++;
-        return Batch(images_batch, labels_batch);
+        return Batch(images_batch, labels_batch, batch_size);
     } else {
         throw BatchesExhaustedException("Testing batches exhaused");
     }
