@@ -1,21 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
-project(diffusion_rev LANGUAGES CXX CUDA)
+project(vit LANGUAGES CXX CUDA)
 
-set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/media/riju/New Volume2/libtorch")
+# Load shared dependencies
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/Dependencies.cmake)
 
-find_package(Torch CONFIG REQUIRED)
-find_package(OpenCV REQUIRED)
-
-include_directories(${CMAKE_SOURCE_DIR} ${OpenCV_INCLUDE_DIRS})
-
-
-# Add libtorch flags
-set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS})
+# Add data_loaders as a subdirectory (relative to vit/)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../data_loaders
+                 ${CMAKE_CURRENT_BINARY_DIR}/data_loaders_build)
 
 add_executable(train train.cpp vit.cpp trainer.cpp)
-target_link_libraries(train ${TORCH_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(train ${TORCH_LIBRARIES} ${OpenCV_LIBS} data_loaders)
 set_property(TARGET train PROPERTY CXX_STANDARD 17)
 
 add_executable(infer infer.cpp vit.cpp)
-target_link_libraries(infer ${TORCH_LIBRARIES} ${OpenCV_LIBS})
+target_link_libraries(infer ${TORCH_LIBRARIES} ${OpenCV_LIBS} data_loaders)
 set_property(TARGET infer PROPERTY CXX_STANDARD 17)

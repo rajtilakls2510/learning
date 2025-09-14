@@ -2,7 +2,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include "vit.h"      
-#include "data_loader.h"
+#include "mnist_loader.hpp"
 
 using namespace MNIST;
 

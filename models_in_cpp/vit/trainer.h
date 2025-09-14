@@ -5,7 +5,7 @@
 #include <memory>
 
 #include "vit.h"
-#include "data_loader.h"
+#include "mnist_loader.hpp"
 
 namespace trainer { 
     using namespace MNIST;
