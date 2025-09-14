@@ -75,20 +75,12 @@ ViTImpl::ViTImpl(
     embedding_time = register_module(
             "embedding_time",
             torch::nn::Embedding(torch::nn::EmbeddingOptions(max_diffusion_time + 1, dim)));
-    auto encoder_layer =
+
+    auto image_encoder_layer =
             torch::nn::TransformerEncoderLayer(torch::nn::TransformerEncoderLayerOptions(dim, heads)
                                                        .dim_feedforward(mlp_dim)
                                                        .activation(torch::kGELU));
-    time_encoder = register_module(
-            "time_encoder",
-            torch::nn::TransformerEncoder(
-                    torch::nn::TransformerEncoderOptions(encoder_layer, time_depth)));
-
-    auto decoder_layer =
-            torch::nn::TransformerDecoderLayer(torch::nn::TransformerDecoderLayerOptions(dim, heads)
-                                                       .dim_feedforward(mlp_dim)
-                                                       .activation(torch::kGELU));
-    decoder = register_module("decoder", torch::nn::TransformerDecoder(decoder_layer, depth));
+    image_encoder = register_module("image_encoder", torch::nn::TransformerEncoder(image_encoder_layer, depth));
 
     reconstruction_head = torch::nn::Linear(dim, patch_size * patch_size * channels);
     register_module("reconstruction_head", reconstruction_head);
@@ -97,15 +89,15 @@ ViTImpl::ViTImpl(
 torch::Tensor ViTImpl::forward(torch::Tensor x, torch::Tensor t) {
     x = patchify(x, patch_size, patch_size);
 
-    t = embedding_time(t).permute({1, 0, 2});  // [1, batch, dim]
-    t = time_encoder(t);                       // [1, batch, dim]
+    t = embedding_time(t);  // [batch, 1, dim]
 
     x = to_patch_embedding->forward(x);
     x += pos_embedding;
+    x += t;
 
     // Permute to (seq_len, batch, embed_dim)
     x = x.permute({1, 0, 2});
-    x = decoder->forward(/* target */ x, /* memory */ t);
+    x = image_encoder->forward(x);
 
     x = x.permute({1, 0, 2});  // back to [batch, seq_len, embed_dim]
 

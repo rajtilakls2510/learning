@@ -33,8 +33,7 @@ private:
     torch::nn::Sequential to_patch_embedding{nullptr};
     torch::nn::Embedding embedding_time{nullptr};
     torch::Tensor pos_embedding{nullptr};
-    torch::nn::TransformerEncoder time_encoder{nullptr};
-    torch::nn::TransformerDecoder decoder{nullptr};
+    torch::nn::TransformerEncoder image_encoder{nullptr};
     torch::nn::Linear reconstruction_head{nullptr};
 };
 
