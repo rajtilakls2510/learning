@@ -33,6 +33,7 @@ private:
     torch::nn::Embedding embedding_time{nullptr};
     torch::nn::Sequential time_mlp{nullptr};
     torch::Tensor pos_embedding{nullptr};
+    torch::Tensor time_pos_embedding{nullptr};
     torch::nn::TransformerEncoder image_encoder{nullptr};
     torch::nn::Sequential reconstruction_head{nullptr};
 };

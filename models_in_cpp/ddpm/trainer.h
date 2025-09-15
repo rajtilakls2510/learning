@@ -7,6 +7,7 @@
 #include "diffusion_utils.h"
 #include "mnist_loader.hpp"
 #include "network.h"
+// #include "unet_mnist.hpp"
 
 namespace ddpm {
     using namespace MNIST;
@@ -28,6 +29,7 @@ private:
     std::string data_path, checkpoint_path;
     int max_diffusion_time;
     ViT model{nullptr};
+    // UNet model{nullptr};
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr};
 
     torch::Tensor betas, alphas, alphas_cumprod, alphas_cumprod_prev, sqrt_alphas_cumprod,

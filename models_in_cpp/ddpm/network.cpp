@@ -5,6 +5,19 @@
 
 namespace ddpm {
 
+torch::Tensor build_posemb_sincos_1d(int n, int dim, int max_period = 10000) {
+    // n: maximum diffusion steps
+    torch::Tensor positions = torch::arange(n, torch::kFloat32).unsqueeze(1);  // [n,1]
+
+    auto half_dim = torch::arange(dim / 2, torch::kFloat32);  // [dim/2]
+    half_dim = -torch::log(torch::tensor((float)max_period)) * half_dim / (dim / 2 - 1);
+    auto freqs = torch::exp(half_dim);  // [dim/2]
+
+    auto args = positions * freqs;                                    // [n, dim/2]
+    auto emb = torch::cat({torch::sin(args), torch::cos(args)}, -1);  // [n, dim]
+    return emb;                                                       // [n, dim]
+}
+
 torch::Tensor posemb_sincos_2d(int h, int w, int dim, int temp) {
     std::vector<torch::Tensor> o = torch::meshgrid(
             {torch::arange(h, torch::dtype(torch::kLong)),
@@ -71,6 +84,9 @@ ViTImpl::ViTImpl(
     pos_embedding = posemb_sincos_2d(img_size / patch_size, img_size / patch_size, dim);
     pos_embedding = register_buffer("pos_embedding", pos_embedding);
 
+    time_pos_embedding = build_posemb_sincos_1d(max_diffusion_time + 1, dim);
+    time_pos_embedding = register_buffer("time_pos_embedding", time_pos_embedding);
+
     embedding_time = register_module(
             "embedding_time",
             torch::nn::Embedding(torch::nn::EmbeddingOptions(max_diffusion_time + 1, dim)));
@@ -99,17 +115,25 @@ ViTImpl::ViTImpl(
     register_module("reconstruction_head", reconstruction_head);
 }
 
-torch::Tensor ViTImpl::forward(torch::Tensor x, torch::Tensor t) {
-    x = patchify(x, patch_size, patch_size);
+torch::Tensor ViTImpl::forward(torch::Tensor x_, torch::Tensor t) {
+    torch::Tensor x = patchify(x_, patch_size, patch_size);
 
     x = to_patch_embedding->forward(x);
     x += pos_embedding;
 
-    auto t_emb = embedding_time(t);                                   // [B,1,dim]
-    t_emb = t_emb.squeeze(1);                   // make [B, dim]
-    t_emb = time_mlp->forward(t_emb);                                 // [B, dim]
-    t_emb = t_emb.unsqueeze(1);                                       // [B, 1, dim]
-    t_emb = t_emb.expand({t_emb.size(0), x.size(1), t_emb.size(2)});  // [B, seq_len, dim]
+    // --- Time embeddings ---
+    // Learned time embedding
+    auto t_emb_learned = embedding_time(t);  // [B, dim]
+
+    // Sinusoidal time embedding
+    auto t_emb_sin = time_pos_embedding.index_select(0, t);  // [B, dim]
+
+    // Combine (add or concat; here we add)
+    auto t_emb = t_emb_learned + t_emb_sin;
+
+    t_emb = time_mlp->forward(t_emb);  // [B, dim]
+    t_emb = t_emb.unsqueeze(1);        // [B,1,dim]
+    t_emb = t_emb.expand({t_emb.size(0), x.size(1), t_emb.size(2)});
     x = x + t_emb;
 
     // Permute to (seq_len, batch, embed_dim)

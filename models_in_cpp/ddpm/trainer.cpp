@@ -28,11 +28,12 @@ Trainer::Trainer(
             /* img_size */ 28,
             /* patch_size */ 4,
             /* embed_dim */ 256,
-            /* depth */ 8,
+            /* depth */ 6,
             /* heads */ 4,
             /* mlp_dim */ 1024,
             /* n_channels */ 1,
             /* max diffusion time*/ max_diffusion_time);
+    // model = UNet(1, 1, 32, max_diffusion_time);
     optimizer = std::make_shared<torch::optim::Adam>(
             model->parameters(), torch::optim::AdamOptions(1e-4));  // Learning rate: 2e-5
     if (!fs::exists(cp / "model.pth")) {
@@ -49,7 +50,8 @@ Trainer::Trainer(
     std::cout << "Num Parameters: " << net::count_parameters(model) << "\n";
 
     // Initialize noise schedules
-    betas = cosine_beta_schedule(max_diffusion_time).to(device);
+    betas = linear_schedule(max_diffusion_time)
+                    .to(device);  // cosine_beta_schedule(max_diffusion_time).to(device);
 
     alphas = 1.0 - betas;
     alphas_cumprod = torch::cumprod(alphas, /*axis*/ 0);
@@ -78,7 +80,7 @@ torch::Tensor Trainer::q_sample(torch::Tensor x_start, torch::Tensor t, torch::T
 void Trainer::train_step(Batch batch, double* loss /*TODO Metrics*/) {
     model->train();
     auto images = batch.images.to(device);
-    images = 2 * images - 1;    // Scale between [-1,1]
+    images = 2 * images - 1;  // Scale between [-1,1]
     torch::Tensor t, noise, x_noisy;
     {
         torch::NoGradGuard no_grad;
@@ -92,7 +94,8 @@ void Trainer::train_step(Batch batch, double* loss /*TODO Metrics*/) {
     // std::cout << "noise: " << net::get_size(noise) << "\n";
     // std::cout << "x_noisy: " << net::get_size(x_noisy) << "\n";
 
-    auto outputs = model->forward(x_noisy, t.unsqueeze(-1));
+    // auto outputs = model->forward(x_noisy, t.unsqueeze(-1));
+    auto outputs = model->forward(x_noisy, t);
 
     // std::cout << "outputs: " << net::get_size(outputs) << " " << outputs.index({0,0}) << "\n";
 
@@ -117,7 +120,8 @@ void Trainer::test_step(Batch batch, double* loss /*TODO Metrics*/) {
     noise = torch::randn_like(images).to(device);
     x_noisy = q_sample(images, t - 1, noise);
 
-    auto outputs = model->forward(x_noisy, t.unsqueeze(-1));
+    // auto outputs = model->forward(x_noisy, t.unsqueeze(-1));
+    auto outputs = model->forward(x_noisy, t);
 
     torch::nn::MSELoss criterion;
     auto loss_tensor = criterion(outputs, noise);
