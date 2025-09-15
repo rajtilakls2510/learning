@@ -44,7 +44,6 @@ int main(int argc, char* argv[]) {
             /* patch_size */ 4,
             /* embed_dim */ 256,
             /* depth */ 8,
-            /* time_depth */ 2,
             /* heads */ 4,
             /* mlp_dim */ 1024,
             /* n_channels */ 1,
@@ -61,33 +60,38 @@ int main(int argc, char* argv[]) {
             torch::cat({torch::ones({1}).to(device), alphas_cumprod.index({Slice(0, -1)})});
     torch::Tensor sqrt_alphas_cumprod = torch::sqrt(alphas_cumprod);
     torch::Tensor sqrt_one_minus_alphas_cumprod = torch::sqrt(1.0 - alphas_cumprod);
-    torch::Tensor beta_tildes = (1 - alphas_cumprod_prev) * betas / (1.0 - alphas_cumprod);
+    torch::Tensor beta_tildes = ((1 - alphas_cumprod_prev) * betas) / (1.0 - alphas_cumprod);
 
     torch::NoGradGuard no_grad;
     int batch_size = 1;
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 1; i++) {
         torch::Tensor x = torch::randn({batch_size, 1, 28, 28}).to(device);
-        for (int t = max_diffusion_time - 1; t >= 0; t--) {
+        for (int t = max_diffusion_time; t > 0; t--) {
             torch::Tensor timesteps = torch::full(
                     {batch_size}, t, torch::TensorOptions().device(device).dtype(torch::kLong));
-
+            std::cout << "timesteps: " << timesteps << "\n";
             torch::Tensor z = torch::randn_like(x).to(device);
-            if (t == 0) z = torch::zeros_like(x).to(device);
+            if (t == 1) z = torch::zeros_like(x).to(device);
 
             auto predicted_noise = model->forward(x, timesteps.unsqueeze(-1));
-            torch::Tensor sqrt_alpha_t = torch::sqrt(extract(alphas, timesteps, x.sizes()));
-            torch::Tensor sqrt_one_minus_alphas_cumprod_t = extract(sqrt_one_minus_alphas_cumprod, timesteps, x.sizes());
-            torch::Tensor beta_t = extract(betas, timesteps, x.sizes());
-            x = (1.0 / sqrt_alpha_t) * (x - beta_t * predicted_noise / sqrt_one_minus_alphas_cumprod_t);
+            torch::Tensor sqrt_alpha_t = torch::sqrt(extract(alphas, timesteps - 1, x.sizes()));
+            torch::Tensor sqrt_one_minus_alphas_cumprod_t = extract(sqrt_one_minus_alphas_cumprod, timesteps - 1, x.sizes());
+            torch::Tensor beta_t = extract(betas, timesteps - 1, x.sizes());
 
-            torch::Tensor sqrt_beta_tilde_t = torch::sqrt(extract(beta_tildes, timesteps, x.sizes()));
-            x += sqrt_beta_tilde_t * z;
-            x = torch::clamp(x, -1.0, 1.0);
+            std::cout << "sqrt_alpha_t: " << sqrt_alpha_t << " sqrt_one_minus_alphas_cumprod_t: " << sqrt_one_minus_alphas_cumprod_t << " beta_t: " << beta_t << "\n";
+            x = (1.0 / sqrt_alpha_t) * (x - beta_t * predicted_noise / sqrt_one_minus_alphas_cumprod_t);
+            std::cout << "t: " << t << " predicted_noise: " << predicted_noise << " x: " << x << "\n";
+            
+            torch::Tensor sqrt_beta_tilde_t = torch::sqrt(extract(beta_tildes, timesteps - 1, x.sizes()));
+            // x += sqrt_beta_tilde_t * z;
+            x += torch::sqrt(beta_t) * z;
+            // x = torch::clamp(x, -1.0, 1.0);
         
         }
 
-        std::cout << "x : " << x << "\n";
+        // std::cout << "x : " << x << "\n";
         x = torch::clamp(x, -1.0, 1.0);
+        x = (x + 1) / 2; // Scale between [0,1]
 
         show_image(x, "img");
     }

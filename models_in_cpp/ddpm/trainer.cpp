@@ -6,6 +6,7 @@
 namespace ddpm {
 namespace fs = std::filesystem;
 using namespace MNIST;
+using namespace torch::indexing;
 
 Trainer::Trainer(
         std::string data_path, std::string checkpoint_path, int max_diffusion_time, bool use_cpu)
@@ -28,13 +29,12 @@ Trainer::Trainer(
             /* patch_size */ 4,
             /* embed_dim */ 256,
             /* depth */ 8,
-            /* time_depth */ 2,
             /* heads */ 4,
             /* mlp_dim */ 1024,
             /* n_channels */ 1,
             /* max diffusion time*/ max_diffusion_time);
     optimizer = std::make_shared<torch::optim::Adam>(
-            model->parameters(), torch::optim::AdamOptions(1e-4));  // Learning rate: 5e-4
+            model->parameters(), torch::optim::AdamOptions(1e-4));  // Learning rate: 2e-5
     if (!fs::exists(cp / "model.pth")) {
         std::cout << "Did not find model. Saving initial model...\n";
         torch::save(model, (cp / "model.pth").string());
@@ -50,12 +50,24 @@ Trainer::Trainer(
 
     // Initialize noise schedules
     betas = cosine_beta_schedule(max_diffusion_time).to(device);
+
     alphas = 1.0 - betas;
     alphas_cumprod = torch::cumprod(alphas, /*axis*/ 0);
+
+    // std::cout << "alphas cumprod: " << alphas_cumprod << "\n";
     alphas_cumprod_prev =
             torch::cat({torch::ones({1}).to(device), alphas_cumprod.index({Slice(0, -1)})});
+
+    // std::cout << "alphas cumprod prev: " << alphas_cumprod_prev << "\n";
     sqrt_alphas_cumprod = torch::sqrt(alphas_cumprod);
+
+    // std::cout << "sqrt alphas cumprod: " << sqrt_alphas_cumprod << "\n";
     sqrt_one_minus_alphas_cumprod = torch::sqrt(1.0 - alphas_cumprod);
+    // std::cout << "sqrt 1m alphas cumprod: " << sqrt_one_minus_alphas_cumprod << "\n";
+
+    // torch::Tensor x_start = torch::zeros({3,1,5,5}).to(device);
+    // std::cout << "extracted: " << extract(alphas_cumprod, torch::tensor({1, 500,
+    // 999}).to(torch::kLong).to(device), x_start.sizes()); std::cerr << "Done \n";
 }
 
 torch::Tensor Trainer::q_sample(torch::Tensor x_start, torch::Tensor t, torch::Tensor noise) {
@@ -66,16 +78,23 @@ torch::Tensor Trainer::q_sample(torch::Tensor x_start, torch::Tensor t, torch::T
 void Trainer::train_step(Batch batch, double* loss /*TODO Metrics*/) {
     model->train();
     auto images = batch.images.to(device);
+    images = 2 * images - 1;    // Scale between [-1,1]
     torch::Tensor t, noise, x_noisy;
     {
         torch::NoGradGuard no_grad;
-        t = torch::randint(0, max_diffusion_time, {/*batch*/ batch.batch_size}, torch::kLong)
+        t = torch::randint(1, max_diffusion_time + 1, {/*batch*/ batch.batch_size}, torch::kLong)
                     .to(device);
         noise = torch::randn_like(images).to(device);
-        x_noisy = q_sample(images, t, noise);
+        x_noisy = q_sample(images, t - 1, noise);
     }
 
+    // std::cout << "t: " << net::get_size(t) << "\n";
+    // std::cout << "noise: " << net::get_size(noise) << "\n";
+    // std::cout << "x_noisy: " << net::get_size(x_noisy) << "\n";
+
     auto outputs = model->forward(x_noisy, t.unsqueeze(-1));
+
+    // std::cout << "outputs: " << net::get_size(outputs) << " " << outputs.index({0,0}) << "\n";
 
     torch::nn::MSELoss criterion;
     auto loss_tensor = criterion(outputs, noise);
@@ -93,10 +112,10 @@ void Trainer::test_step(Batch batch, double* loss /*TODO Metrics*/) {
     torch::Tensor t, noise, x_noisy;
 
     torch::NoGradGuard no_grad;
-    t = torch::randint(0, max_diffusion_time, {/*batch*/ batch.batch_size}, torch::kLong)
+    t = torch::randint(1, max_diffusion_time + 1, {/*batch*/ batch.batch_size}, torch::kLong)
                 .to(device);
     noise = torch::randn_like(images).to(device);
-    x_noisy = q_sample(images, t, noise);
+    x_noisy = q_sample(images, t - 1, noise);
 
     auto outputs = model->forward(x_noisy, t.unsqueeze(-1));
 
@@ -148,7 +167,8 @@ void Trainer::learn(int epochs, int batch_size) {
                 // avg_test_acc = avg_test_acc + (1.0 / n_batch) * (acc - avg_test_acc);
 
                 std::cout << "\rEpoch: " << epoch << " Batch: " << n_batch << "/"
-                          << loader.get_n_test_batches() << " Test Loss: " << avg_test_loss
+                          << loader.get_n_test_batches() << " Test Loss: "
+                          << avg_test_loss
                           //<< " Test Acc: " << avg_test_acc
                           << " ====================================" << std::flush;
 

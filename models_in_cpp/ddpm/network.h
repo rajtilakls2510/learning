@@ -20,7 +20,6 @@ public:
             int patch_size = 16,
             int dim = 128,
             int depth = 4,
-            int time_depth = 2,
             int heads = 4,
             int mlp_dim = 512,
             int channels = 3,
@@ -32,9 +31,10 @@ private:
     int patch_size, img_size, channels;
     torch::nn::Sequential to_patch_embedding{nullptr};
     torch::nn::Embedding embedding_time{nullptr};
+    torch::nn::Sequential time_mlp{nullptr};
     torch::Tensor pos_embedding{nullptr};
     torch::nn::TransformerEncoder image_encoder{nullptr};
-    torch::nn::Linear reconstruction_head{nullptr};
+    torch::nn::Sequential reconstruction_head{nullptr};
 };
 
 TORCH_MODULE(ViT);

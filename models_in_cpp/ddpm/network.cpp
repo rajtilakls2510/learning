@@ -56,7 +56,6 @@ ViTImpl::ViTImpl(
         int patch_size,
         int dim,
         int depth,
-        int time_depth,
         int heads,
         int mlp_dim,
         int channels,
@@ -76,24 +75,42 @@ ViTImpl::ViTImpl(
             "embedding_time",
             torch::nn::Embedding(torch::nn::EmbeddingOptions(max_diffusion_time + 1, dim)));
 
+    time_mlp = register_module(
+            "time_mlp",
+            torch::nn::Sequential(
+                    torch::nn::Linear(dim, dim * 2),
+                    torch::nn::GELU(),
+                    torch::nn::Linear(dim * 2, dim)));
+
     auto image_encoder_layer =
             torch::nn::TransformerEncoderLayer(torch::nn::TransformerEncoderLayerOptions(dim, heads)
                                                        .dim_feedforward(mlp_dim)
                                                        .activation(torch::kGELU));
-    image_encoder = register_module("image_encoder", torch::nn::TransformerEncoder(image_encoder_layer, depth));
+    image_encoder = register_module(
+            "image_encoder", torch::nn::TransformerEncoder(image_encoder_layer, depth));
 
-    reconstruction_head = torch::nn::Linear(dim, patch_size * patch_size * channels);
+    // reconstruction_head = torch::nn::Linear(dim, patch_size * patch_size * channels);
+    // register_module("reconstruction_head", reconstruction_head);
+    reconstruction_head = torch::nn::Sequential(
+            torch::nn::LayerNorm(torch::nn::LayerNormOptions({dim})),
+            torch::nn::Linear(dim, dim),
+            torch::nn::GELU(),
+            torch::nn::Linear(dim, patch_size * patch_size * channels));
     register_module("reconstruction_head", reconstruction_head);
 }
 
 torch::Tensor ViTImpl::forward(torch::Tensor x, torch::Tensor t) {
     x = patchify(x, patch_size, patch_size);
 
-    t = embedding_time(t);  // [batch, 1, dim]
-
     x = to_patch_embedding->forward(x);
     x += pos_embedding;
-    x += t;
+
+    auto t_emb = embedding_time(t);                                   // [B,1,dim]
+    t_emb = t_emb.squeeze(1);                   // make [B, dim]
+    t_emb = time_mlp->forward(t_emb);                                 // [B, dim]
+    t_emb = t_emb.unsqueeze(1);                                       // [B, 1, dim]
+    t_emb = t_emb.expand({t_emb.size(0), x.size(1), t_emb.size(2)});  // [B, seq_len, dim]
+    x = x + t_emb;
 
     // Permute to (seq_len, batch, embed_dim)
     x = x.permute({1, 0, 2});
