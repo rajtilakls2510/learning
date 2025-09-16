@@ -38,19 +38,40 @@ private:
 
 TORCH_MODULE(UNetDownsample);
 
-// class UNetImpl : public torch::nn::Module {
-// public:
-//     UNetImpl(
-//             int img_size,
-//             int img_channels,
-//             int time_dim,
-//             std::vector<int> channel_sequence = {64, 256, 512});
-//     torch::Tensor forward(torch::Tensor x, torch::Tensor t);
-// private:
-//     int img_size, img_channels, time_dim;
-//     std::vector<int> channel_sequence;
-//     torch::
-// };
+class UNetUpsampleImpl : public Module {
+public:
+    UNetUpsampleImpl(int in_ch, int out_ch, int time_dim, int kernel_size);
+    torch::Tensor forward(torch::Tensor x, torch::Tensor t);
+
+private:
+    int in_ch, out_ch, time_dim, kernel_size;
+    torch::Tensor time_pos_embedding{nullptr};
+    Conv2d conv_in{nullptr}, conv_feat{nullptr};
+    ConvTranspose2d spatial{nullptr};
+    BatchNorm2d bn1{nullptr}, bn2{nullptr};
+    Linear time_proj{nullptr};
+    TimePosEncoding time_encoder{nullptr};
+};
+
+TORCH_MODULE(UNetUpsample);
+
+class UNetImpl : public torch::nn::Module {
+public:
+    UNetImpl(
+            int img_size,
+            int img_channels,
+            int time_dim,
+            std::vector<int> channel_sequence = {64, 256, 512});
+    torch::Tensor forward(torch::Tensor x, torch::Tensor t);
+private:
+    int img_size, img_channels, time_dim;
+    std::vector<int> channel_sequence;
+    Conv2d stem{nullptr}, head{nullptr};
+    std::vector<UNetDownsample> down_blocks;
+    std::vector<UNetUpsample> up_blocks;
+};
+
+TORCH_MODULE(UNet);
 
 }  // namespace ddpm
 
