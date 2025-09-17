@@ -28,7 +28,7 @@ private:
     std::string data_path, checkpoint_path;
     int max_diffusion_time;
     // ViT model{nullptr};
-    // UNet model{nullptr};
+    UNet model{nullptr};
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr};
 
     torch::Tensor betas, alphas, alphas_cumprod, alphas_cumprod_prev, sqrt_alphas_cumprod,

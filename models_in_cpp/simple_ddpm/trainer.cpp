@@ -24,16 +24,11 @@ Trainer::Trainer(
 
     std::cout << "Using device: " << (device.is_cuda() ? "CUDA" : "CPU") << "\n";
 
-    // model = ViT(
-    //         /* img_size */ 28,
-    //         /* patch_size */ 4,
-    //         /* embed_dim */ 256,
-    //         /* depth */ 6,
-    //         /* heads */ 4,
-    //         /* mlp_dim */ 1024,
-    //         /* n_channels */ 1,
-    //         /* max diffusion time*/ max_diffusion_time);
-    // model = UNet(1, 1, 32, max_diffusion_time);
+    model = UNet(
+            /*img_size*/ 28,
+            /*img_channels*/ 1,
+            /*time_dim*/ 256,
+            /*channel_dims*/ std::vector<int>{128, 512, 512});
     optimizer = std::make_shared<torch::optim::Adam>(
             model->parameters(), torch::optim::AdamOptions(1e-4));
     if (!fs::exists(cp / "model.pth")) {
@@ -50,9 +45,10 @@ Trainer::Trainer(
     std::cout << "Num Parameters: " << net::count_parameters(model) << "\n";
 
     // Initialize noise schedules
-    betas = linear_schedule(max_diffusion_time)
-                    .to(device);  // cosine_beta_schedule(max_diffusion_time).to(device);
-
+    // betas = linear_schedule(max_diffusion_time)
+    //                 .to(device);
+    betas = cosine_beta_schedule(max_diffusion_time).to(device);
+    
     alphas = 1.0 - betas;
     alphas_cumprod = torch::cumprod(alphas, /*axis*/ 0);
 
@@ -112,6 +108,7 @@ void Trainer::train_step(Batch batch, double* loss /*TODO Metrics*/) {
 void Trainer::test_step(Batch batch, double* loss /*TODO Metrics*/) {
     model->eval();
     auto images = batch.images.to(device);
+    images = 2 * images - 1;  // Scale between [-1,1]
     torch::Tensor t, noise, x_noisy;
 
     torch::NoGradGuard no_grad;
@@ -158,6 +155,11 @@ void Trainer::learn(int epochs, int batch_size) {
         }
         std::cout << "\n";
 
+
+        fs::path cp(checkpoint_path);
+        torch::save(model, (cp / "model.pth").string());
+        torch::save(*optimizer, (cp / "optim.pth").string());
+
         // Test
         n_batch = 0;
         double avg_test_loss = 0;
@@ -182,9 +184,6 @@ void Trainer::learn(int epochs, int batch_size) {
         }
         std::cout << "\n";
 
-        fs::path cp(checkpoint_path);
-        torch::save(model, (cp / "model.pth").string());
-        torch::save(*optimizer, (cp / "optim.pth").string());
     }
 }
 

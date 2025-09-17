@@ -61,7 +61,7 @@ public:
             int img_size,
             int img_channels,
             int time_dim,
-            std::vector<int> channel_sequence = {64, 256, 512});
+            std::vector<int> channel_sequence = {32, 64, 128});
     torch::Tensor forward(torch::Tensor x, torch::Tensor t);
 private:
     int img_size, img_channels, time_dim;
