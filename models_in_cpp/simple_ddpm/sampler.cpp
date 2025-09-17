@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
     auto epoch_seconds =
             std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
     std::string video_path =
-            checkpoint_path + "/diffusion_" + std::to_string(epoch_seconds) + ".avi";
+            checkpoint_path + "/diffusion_" + std::to_string(epoch_seconds) + ".mp4";
 
     int fps = 60;  // frames per second
     cv::VideoWriter writer;
@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
         if (!isWriterOpen) {
             writer.open(
                     video_path,
-                    cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),  // codec
+                    cv::VideoWriter::fourcc('a','v','c','1'),
                     fps,
                     canvas.size(),
                     false);  // false = grayscale video
