@@ -13,6 +13,17 @@ namespace segformer {
 using namespace torch;
 using namespace torch::nn::functional;
 
+class TimePosEncodingImpl : public nn::Module {
+public:
+    TimePosEncodingImpl(int dim);
+    torch::Tensor forward(torch::Tensor t);
+
+private:
+    int dim;
+};
+
+TORCH_MODULE(TimePosEncoding);
+
 class OverlapPatchEmbedImpl : public nn::Module {
 public:
     OverlapPatchEmbedImpl(int img_size, int patch_size, int stride, int in_chans, int embed_dim);
@@ -93,13 +104,15 @@ public:
             float drop_path = 0.0,
             int sr_ratio = 1);
 
-    Tensor forward(Tensor x, int H, int W);
+    Tensor forward(Tensor x, int H, int W, Tensor t);
 
 private:
     nn::LayerNorm norm1{nullptr}, norm2{nullptr};
     DropPath drop_path_{nullptr};
     Attention attn{nullptr};
     MixFFN mlp{nullptr};
+    nn::Linear time_proj{nullptr};
+    TimePosEncoding time_encoder{nullptr};
 };
 
 TORCH_MODULE(Block);
@@ -118,7 +131,7 @@ public:
             float drop_path_rate = 0.0,
             std::vector<int> depths = {3, 4, 6, 3},
             std::vector<int> sr_ratios = {8, 4, 2, 1});
-    std::vector<Tensor> forward(Tensor x);
+    std::vector<Tensor> forward(Tensor x, Tensor t);
 
 private:
     OverlapPatchEmbed patch_embed1{nullptr}, patch_embed2{nullptr}, patch_embed3{nullptr},
@@ -143,7 +156,7 @@ public:
             float drop_path_rate = 0.0,
             std::vector<int> depths = {3, 3},
             std::vector<int> sr_ratios = {2, 1});
-    std::vector<Tensor> forward(Tensor x);
+    std::vector<Tensor> forward(Tensor x, Tensor t);
 
 private:
     OverlapPatchEmbed patch_embed1{nullptr}, patch_embed2{nullptr};
@@ -215,7 +228,7 @@ public:
             std::vector<int> sr_ratios = {8, 4, 2, 1},
             int decoder_embed_dim = 256,
             int out_channels = 3);
-    Tensor forward(Tensor x);
+    Tensor forward(Tensor x, Tensor t);
 
 private:
     int img_size;
@@ -240,7 +253,7 @@ public:
             std::vector<int> sr_ratios = {2, 1},
             int decoder_embed_dim = 256,
             int out_channels = 1);
-    Tensor forward(Tensor x);
+    Tensor forward(Tensor x, Tensor t);
 
 private:
     int img_size;

@@ -51,13 +51,15 @@ int main(int argc, char* argv[]) {
     // // Block test
     // auto block = Block(/*dim*/ 64, /*num_heads*/ 2);
     // torch::Tensor x = torch::zeros({16, 16 * 16, 64});
-    // auto logit = block(x, 16, 16);
+    // torch::Tensor t = torch::randint(1, 1001, {16}, torch::kLong);
+    // auto logit = block(x, 16, 16, t);
     // std::cout << net::get_size(logit) << "\n";
 
     // // MixVisionTransformer test
     // auto mvt = MixVisionTransformer();
+    // torch::Tensor t = torch::randint(1, 1001, {16}, torch::kLong);
     // torch::Tensor x = torch::zeros({16, 3, 224, 224});
-    // auto logits = mvt(x);
+    // auto logits = mvt(x, t);
     // std::cout << net::get_size(logits[0]) << "\n";
     // std::cout << net::get_size(logits[1]) << "\n";
     // std::cout << net::get_size(logits[2]) << "\n";
@@ -65,8 +67,9 @@ int main(int argc, char* argv[]) {
 
     // // MixVisionTransformer test for MNIST
     // auto mvt = MixVisionTransformerMnist(28, 1);
+    // torch::Tensor t = torch::randint(1, 1001, {16}, torch::kLong);
     // torch::Tensor x = torch::zeros({16, 1, 28, 28});
-    // auto logits = mvt(x);
+    // auto logits = mvt(x, t);
     // std::cout << net::get_size(logits[0]) << "\n";
     // std::cout << net::get_size(logits[1]) << "\n";
 
@@ -96,15 +99,17 @@ int main(int argc, char* argv[]) {
 
     // // SegFormer test
     // auto segformer = SegFormer();
+    // torch::Tensor t = torch::randint(1, 1001, {16}, torch::kLong);
     // Tensor x = torch::zeros({16, 3, 224, 224});
-    // auto logits = segformer(x);
+    // auto logits = segformer(x, t);
     // std::cout << net::get_size(logits) << "\n";
     // std::cout << "Parameters: " << net::count_parameters(segformer) << "\n";
 
     // SegFormerMnist test for MNIST
     auto segformer = SegFormerMnist();
+    torch::Tensor t = torch::randint(1, 1001, {16}, torch::kLong);
     Tensor x = torch::zeros({16, 1, 28, 28});
-    auto logits = segformer(x);
+    auto logits = segformer(x, t);
     std::cout << net::get_size(logits) << "\n";
     std::cout << "Parameters: " << net::count_parameters(segformer) << "\n";
 }

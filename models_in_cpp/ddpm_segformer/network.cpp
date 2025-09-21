@@ -5,6 +5,17 @@
 
 namespace ddpm::segformer {
 
+TimePosEncodingImpl::TimePosEncodingImpl(int dim) : dim(dim) {}
+
+torch::Tensor TimePosEncodingImpl::forward(torch::Tensor t) {
+    // t : [B,]
+    int half_dim = dim / 2;
+    torch::Tensor scale = torch::log(torch::tensor((float)10000)) / (half_dim - 1);
+    torch::Tensor exponents = torch::exp(torch::arange(half_dim).to(t.device()) * -scale);
+    torch::Tensor args = t.unsqueeze(-1) * exponents.unsqueeze(0);
+    return torch::cat({args.sin(), args.cos()}, /*dim*/ -1);  // [B, dim]
+}
+
 OverlapPatchEmbedImpl::OverlapPatchEmbedImpl(
         int img_size, int patch_size, int stride, int in_chans, int embed_dim) {
     int H = img_size / patch_size;
@@ -132,11 +143,15 @@ BlockImpl::BlockImpl(
     norm2 = register_module("norm2", nn::LayerNorm(nn::LayerNormOptions({dim})));
     int mlp_hidden_dim = (int)(dim * mlp_ratio);
     mlp = register_module("mlp", MixFFN(dim, mlp_hidden_dim, drop));
+    time_encoder = register_module("time_encoder", TimePosEncoding(dim));
+    time_proj = register_module("time_proj", nn::Linear(dim, dim));
 }
 
-Tensor BlockImpl::forward(Tensor x, int H, int W) {
+Tensor BlockImpl::forward(Tensor x, int H, int W, Tensor t) {
     x = x + drop_path_(attn(norm1(x), H, W));
     x = x + drop_path_(mlp(norm1(x), H, W));
+    torch::Tensor t_emb = torch::nn::functional::relu(time_proj(time_encoder(t)));
+    x = x + t_emb.unsqueeze(1);
     return x;
 }
 
@@ -242,7 +257,7 @@ MixVisionTransformerImpl::MixVisionTransformerImpl(
     norm4 = register_module("norm4", nn::LayerNorm(nn::LayerNormOptions({embed_dims[3]})));
 }
 
-std::vector<Tensor> MixVisionTransformerImpl::forward(Tensor x) {
+std::vector<Tensor> MixVisionTransformerImpl::forward(Tensor x, Tensor t) {
     int B = x.size(0);
     int H, W;
     std::vector<Tensor> outs;
@@ -252,7 +267,7 @@ std::vector<Tensor> MixVisionTransformerImpl::forward(Tensor x) {
     H = std::get<1>(out);
     W = std::get<2>(out);
 
-    for (int i = 0; i < blocks1.size(); i++) x = blocks1[i](x, H, W);
+    for (int i = 0; i < blocks1.size(); i++) x = blocks1[i](x, H, W, t);
 
     x = norm1(x);
     x = x.reshape({B, H, W, -1}).permute({0, 3, 1, 2}).contiguous();
@@ -263,7 +278,7 @@ std::vector<Tensor> MixVisionTransformerImpl::forward(Tensor x) {
     H = std::get<1>(out);
     W = std::get<2>(out);
 
-    for (int i = 0; i < blocks2.size(); i++) x = blocks2[i](x, H, W);
+    for (int i = 0; i < blocks2.size(); i++) x = blocks2[i](x, H, W, t);
 
     x = norm2(x);
     x = x.reshape({B, H, W, -1}).permute({0, 3, 1, 2}).contiguous();
@@ -274,7 +289,7 @@ std::vector<Tensor> MixVisionTransformerImpl::forward(Tensor x) {
     H = std::get<1>(out);
     W = std::get<2>(out);
 
-    for (int i = 0; i < blocks3.size(); i++) x = blocks3[i](x, H, W);
+    for (int i = 0; i < blocks3.size(); i++) x = blocks3[i](x, H, W, t);
 
     x = norm3(x);
     x = x.reshape({B, H, W, -1}).permute({0, 3, 1, 2}).contiguous();
@@ -285,7 +300,7 @@ std::vector<Tensor> MixVisionTransformerImpl::forward(Tensor x) {
     H = std::get<1>(out);
     W = std::get<2>(out);
 
-    for (int i = 0; i < blocks4.size(); i++) x = blocks4[i](x, H, W);
+    for (int i = 0; i < blocks4.size(); i++) x = blocks4[i](x, H, W, t);
 
     x = norm4(x);
     x = x.reshape({B, H, W, -1}).permute({0, 3, 1, 2}).contiguous();
@@ -356,7 +371,7 @@ MixVisionTransformerMnistImpl::MixVisionTransformerMnistImpl(
     norm2 = register_module("norm2", nn::LayerNorm(nn::LayerNormOptions({embed_dims[1]})));
 }
 
-std::vector<Tensor> MixVisionTransformerMnistImpl::forward(Tensor x) {
+std::vector<Tensor> MixVisionTransformerMnistImpl::forward(Tensor x, Tensor t) {
     int B = x.size(0);
     int H, W;
     std::vector<Tensor> outs;
@@ -366,7 +381,7 @@ std::vector<Tensor> MixVisionTransformerMnistImpl::forward(Tensor x) {
     H = std::get<1>(out);
     W = std::get<2>(out);
 
-    for (int i = 0; i < blocks1.size(); i++) x = blocks1[i](x, H, W);
+    for (int i = 0; i < blocks1.size(); i++) x = blocks1[i](x, H, W, t);
 
     x = norm1(x);
     x = x.reshape({B, H, W, -1}).permute({0, 3, 1, 2}).contiguous();
@@ -377,7 +392,7 @@ std::vector<Tensor> MixVisionTransformerMnistImpl::forward(Tensor x) {
     H = std::get<1>(out);
     W = std::get<2>(out);
 
-    for (int i = 0; i < blocks2.size(); i++) x = blocks2[i](x, H, W);
+    for (int i = 0; i < blocks2.size(); i++) x = blocks2[i](x, H, W, t);
 
     x = norm2(x);
     x = x.reshape({B, H, W, -1}).permute({0, 3, 1, 2}).contiguous();
@@ -519,8 +534,8 @@ SegFormerImpl::SegFormerImpl(
     decoder = register_module("decoder", Decoder(embed_dims, decoder_embed_dim, out_channels));
 }
 
-Tensor SegFormerImpl::forward(Tensor x) {
-    x = decoder(encoder(x));
+Tensor SegFormerImpl::forward(Tensor x, Tensor t) {
+    x = decoder(encoder(x, t));
     std::vector<int64_t> s = {img_size, img_size};
     x = interpolate(
             x, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
@@ -558,8 +573,8 @@ SegFormerMnistImpl::SegFormerMnistImpl(
     decoder = register_module("decoder", DecoderMnist(embed_dims, decoder_embed_dim, out_channels));
 }
 
-Tensor SegFormerMnistImpl::forward(Tensor x) {
-    x = decoder(encoder(x));
+Tensor SegFormerMnistImpl::forward(Tensor x, Tensor t) {
+    x = decoder(encoder(x, t));
     std::vector<int64_t> s = {img_size, img_size};
     x = interpolate(
             x, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
