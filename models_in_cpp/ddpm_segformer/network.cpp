@@ -3,7 +3,7 @@
 
 #include "network.h"
 
-namespace ddpm {
+namespace ddpm::segformer {
 
 OverlapPatchEmbedImpl::OverlapPatchEmbedImpl(
         int img_size, int patch_size, int stride, int in_chans, int embed_dim) {
@@ -386,6 +386,186 @@ std::vector<Tensor> MixVisionTransformerMnistImpl::forward(Tensor x) {
     return outs;
 }
 
-}  // namespace ddpm
+DecoderMLPImpl::DecoderMLPImpl(int input_dim, int embed_dim) {
+    proj = register_module("proj", nn::Linear(nn::LinearOptions(input_dim, embed_dim)));
+}
+
+Tensor DecoderMLPImpl::forward(Tensor x) {
+    x = x.flatten(2).transpose(1, 2);
+    x = proj(x).permute({0, 2, 1});
+    return x;
+}
+
+DecoderImpl::DecoderImpl(
+        std::vector<int> in_channels, int embed_dim, int out_channels, float dropout_ratio) {
+    linear_c1 = register_module("linear_c1", DecoderMLP(in_channels[0], embed_dim));
+    linear_c2 = register_module("linear_c2", DecoderMLP(in_channels[1], embed_dim));
+    linear_c3 = register_module("linear_c3", DecoderMLP(in_channels[2], embed_dim));
+    linear_c4 = register_module("linear_c4", DecoderMLP(in_channels[3], embed_dim));
+
+    conv_fuse = register_module(
+            "conv_fuse", nn::Conv2d(nn::Conv2dOptions(embed_dim * 4, embed_dim, 1).bias(false)));
+    bn = register_module("bn", nn::BatchNorm2d(nn::BatchNorm2dOptions({embed_dim})));
+    dropout = register_module("dropout", nn::Dropout2d(nn::Dropout2dOptions(dropout_ratio)));
+    conv_pred =
+            register_module("conv_pred", nn::Conv2d(nn::Conv2dOptions(embed_dim, out_channels, 1)));
+}
+
+Tensor DecoderImpl::forward(std::vector<Tensor> x) {
+    int n, h, w;
+    std::vector<int64_t> s = {x[0].size(2), x[0].size(3)};
+
+    n = x[3].size(0);
+    h = x[3].size(2);
+    w = x[3].size(3);
+
+    Tensor c4 = linear_c4(x[3]).reshape({n, -1, h, w});
+    c4 = interpolate(
+            c4, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
+
+    n = x[2].size(0);
+    h = x[2].size(2);
+    w = x[2].size(3);
+
+    Tensor c3 = linear_c3(x[2]).reshape({n, -1, h, w});
+    c3 = interpolate(
+            c3, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
+
+    n = x[1].size(0);
+    h = x[1].size(2);
+    w = x[1].size(3);
+
+    Tensor c2 = linear_c2(x[1]).reshape({n, -1, h, w});
+    c2 = interpolate(
+            c2, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
+
+    n = x[0].size(0);
+    h = x[0].size(2);
+    w = x[0].size(3);
+
+    Tensor c1 = linear_c1(x[0]).reshape({n, -1, h, w});
+
+    Tensor c = nn::functional::relu(bn(conv_fuse(torch::cat({c4, c3, c2, c1}, /*dim*/ 1))));
+    c = dropout(c);
+    c = conv_pred(c);
+    return c;
+}
+
+DecoderMnistImpl::DecoderMnistImpl(
+        std::vector<int> in_channels, int embed_dim, int out_channels, float dropout_ratio) {
+    linear_c1 = register_module("linear_c1", DecoderMLP(in_channels[0], embed_dim));
+    linear_c2 = register_module("linear_c2", DecoderMLP(in_channels[1], embed_dim));
+
+    conv_fuse = register_module(
+            "conv_fuse", nn::Conv2d(nn::Conv2dOptions(embed_dim * 2, embed_dim, 1).bias(false)));
+    bn = register_module("bn", nn::BatchNorm2d(nn::BatchNorm2dOptions({embed_dim})));
+    dropout = register_module("dropout", nn::Dropout2d(nn::Dropout2dOptions(dropout_ratio)));
+    conv_pred =
+            register_module("conv_pred", nn::Conv2d(nn::Conv2dOptions(embed_dim, out_channels, 1)));
+}
+
+Tensor DecoderMnistImpl::forward(std::vector<Tensor> x) {
+    int n, h, w;
+    std::vector<int64_t> s = {x[0].size(2), x[0].size(3)};
+
+    n = x[1].size(0);
+    h = x[1].size(2);
+    w = x[1].size(3);
+
+    Tensor c2 = linear_c2(x[1]).reshape({n, -1, h, w});
+    c2 = interpolate(
+            c2, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
+
+    n = x[0].size(0);
+    h = x[0].size(2);
+    w = x[0].size(3);
+
+    Tensor c1 = linear_c1(x[0]).reshape({n, -1, h, w});
+
+    Tensor c = nn::functional::relu(bn(conv_fuse(torch::cat({c2, c1}, /*dim*/ 1))));
+    c = dropout(c);
+    c = conv_pred(c);
+    return c;
+}
+
+SegFormerImpl::SegFormerImpl(
+        int img_size,
+        int in_chans,
+        std::vector<int> embed_dims,
+        std::vector<int> num_heads,
+        std::vector<float> mlp_ratios,
+        bool qkv_bias,
+        float drop_rate,
+        float drop_path_rate,
+        std::vector<int> depths,
+        std::vector<int> sr_ratios,
+        int decoder_embed_dim,
+        int out_channels)
+    : img_size(img_size) {
+    encoder = register_module(
+            "encoder",
+            MixVisionTransformer(
+                    img_size,
+                    in_chans,
+                    embed_dims,
+                    num_heads,
+                    mlp_ratios,
+                    qkv_bias,
+                    drop_rate,
+                    0.0,
+                    drop_path_rate,
+                    depths,
+                    sr_ratios));
+    decoder = register_module("decoder", Decoder(embed_dims, decoder_embed_dim, out_channels));
+}
+
+Tensor SegFormerImpl::forward(Tensor x) {
+    x = decoder(encoder(x));
+    std::vector<int64_t> s = {img_size, img_size};
+    x = interpolate(
+            x, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
+    return x;
+}
+
+SegFormerMnistImpl::SegFormerMnistImpl(
+        int img_size,
+        int in_chans,
+        std::vector<int> embed_dims,
+        std::vector<int> num_heads,
+        std::vector<float> mlp_ratios,
+        bool qkv_bias,
+        float drop_rate,
+        float drop_path_rate,
+        std::vector<int> depths,
+        std::vector<int> sr_ratios,
+        int decoder_embed_dim,
+        int out_channels)
+    : img_size(img_size) {
+    encoder = register_module(
+            "encoder",
+            MixVisionTransformerMnist(
+                    img_size,
+                    in_chans,
+                    embed_dims,
+                    num_heads,
+                    mlp_ratios,
+                    qkv_bias,
+                    drop_rate,
+                    0.0,
+                    drop_path_rate,
+                    depths,
+                    sr_ratios));
+    decoder = register_module("decoder", DecoderMnist(embed_dims, decoder_embed_dim, out_channels));
+}
+
+Tensor SegFormerMnistImpl::forward(Tensor x) {
+    x = decoder(encoder(x));
+    std::vector<int64_t> s = {img_size, img_size};
+    x = interpolate(
+            x, InterpolateFuncOptions().size(s).mode(torch::kBilinear).align_corners(false));
+    return x;
+}
+
+}  // namespace ddpm::segformer
 
 #endif

@@ -2,7 +2,7 @@
 
 #include "network.h"
 
-using namespace ddpm;
+using namespace ddpm::segformer;
 
 int main(int argc, char* argv[]) {
     torch::NoGradGuard no_grad;
@@ -63,11 +63,48 @@ int main(int argc, char* argv[]) {
     // std::cout << net::get_size(logits[2]) << "\n";
     // std::cout << net::get_size(logits[3]) << "\n";
 
-    // MixVisionTransformer test for MNIST
-    auto mvt = MixVisionTransformerMnist(28, 1);
-    torch::Tensor x = torch::zeros({16, 1, 28, 28});
-    auto logits = mvt(x);
-    std::cout << net::get_size(logits[0]) << "\n";
-    std::cout << net::get_size(logits[1]) << "\n";
+    // // MixVisionTransformer test for MNIST
+    // auto mvt = MixVisionTransformerMnist(28, 1);
+    // torch::Tensor x = torch::zeros({16, 1, 28, 28});
+    // auto logits = mvt(x);
+    // std::cout << net::get_size(logits[0]) << "\n";
+    // std::cout << net::get_size(logits[1]) << "\n";
 
+    // // DecoderMLP test
+    // auto dmlp = DecoderMLP(/*input_dim*/ 32, /*embed_dim*/ 64);
+    // torch::Tensor x = torch::zeros({16, 32, 7, 7});
+    // auto logits = dmlp(x);
+    // std::cout << net::get_size(logits) << "\n";
+
+    // // Decoder
+    // auto decoder = Decoder();
+    // std::vector<Tensor> x;
+    // x.push_back(torch::zeros({16, 64, 56, 56}));
+    // x.push_back(torch::zeros({16, 128, 28, 28}));
+    // x.push_back(torch::zeros({16, 256, 14, 14}));
+    // x.push_back(torch::zeros({16, 512, 7, 7}));
+    // auto logits = decoder(x);
+    // std::cout << net::get_size(logits) << "\n";
+
+    // // DecoderMnist test for MNIST
+    // auto decoder = DecoderMnist();
+    // std::vector<Tensor> x;
+    // x.push_back(torch::zeros({16, 64, 28, 28}));
+    // x.push_back(torch::zeros({16, 128, 28, 28}));
+    // auto logits = decoder(x);
+    // std::cout << net::get_size(logits) << "\n";
+
+    // // SegFormer test
+    // auto segformer = SegFormer();
+    // Tensor x = torch::zeros({16, 3, 224, 224});
+    // auto logits = segformer(x);
+    // std::cout << net::get_size(logits) << "\n";
+    // std::cout << "Parameters: " << net::count_parameters(segformer) << "\n";
+
+    // SegFormerMnist test for MNIST
+    auto segformer = SegFormerMnist();
+    Tensor x = torch::zeros({16, 1, 28, 28});
+    auto logits = segformer(x);
+    std::cout << net::get_size(logits) << "\n";
+    std::cout << "Parameters: " << net::count_parameters(segformer) << "\n";
 }

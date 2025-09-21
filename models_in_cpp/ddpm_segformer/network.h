@@ -8,8 +8,10 @@
 #include "network_utils.h"
 
 namespace ddpm {
+namespace segformer {
 
 using namespace torch;
+using namespace torch::nn::functional;
 
 class OverlapPatchEmbedImpl : public nn::Module {
 public:
@@ -130,8 +132,8 @@ TORCH_MODULE(MixVisionTransformer);
 class MixVisionTransformerMnistImpl : public nn::Module {
 public:
     MixVisionTransformerMnistImpl(
-            int img_size = 224,
-            int in_chans = 3,
+            int img_size = 28,
+            int in_chans = 1,
             std::vector<int> embed_dims = {64, 128},
             std::vector<int> num_heads = {2, 4},
             std::vector<float> mlp_ratios = {4.0, 4.0},
@@ -150,6 +152,105 @@ private:
 };
 
 TORCH_MODULE(MixVisionTransformerMnist);
+
+class DecoderMLPImpl : public nn::Module {
+public:
+    DecoderMLPImpl(int input_dim = 2048, int embed_dim = 768);
+    Tensor forward(Tensor x);
+
+private:
+    nn::Linear proj{nullptr};
+};
+
+TORCH_MODULE(DecoderMLP);
+
+class DecoderImpl : public nn::Module {
+public:
+    DecoderImpl(
+            std::vector<int> in_channels = {64, 128, 256, 512},
+            int embed_dim = 256,
+            int out_channels = 3,
+            float dropout_ratio = 0.1);
+    Tensor forward(std::vector<Tensor> x);
+
+private:
+    DecoderMLP linear_c4{nullptr}, linear_c3{nullptr}, linear_c2{nullptr}, linear_c1{nullptr};
+    nn::Conv2d conv_fuse{nullptr}, conv_pred{nullptr};
+    nn::BatchNorm2d bn{nullptr};
+    nn::Dropout2d dropout{nullptr};
+};
+
+TORCH_MODULE(Decoder);
+
+class DecoderMnistImpl : public nn::Module {
+public:
+    DecoderMnistImpl(
+            std::vector<int> in_channels = {64, 128},
+            int embed_dim = 256,
+            int out_channels = 1,
+            float dropout_ratio = 0.1);
+    Tensor forward(std::vector<Tensor> x);
+
+private:
+    DecoderMLP linear_c2{nullptr}, linear_c1{nullptr};
+    nn::Conv2d conv_fuse{nullptr}, conv_pred{nullptr};
+    nn::BatchNorm2d bn{nullptr};
+    nn::Dropout2d dropout{nullptr};
+};
+
+TORCH_MODULE(DecoderMnist);
+
+class SegFormerImpl : public nn::Module {
+public:
+    SegFormerImpl(
+            int img_size = 224,
+            int in_chans = 3,
+            std::vector<int> embed_dims = {64, 128, 256, 512},
+            std::vector<int> num_heads = {1, 2, 4, 8},
+            std::vector<float> mlp_ratios = {4.0, 4.0, 4.0, 4.0},
+            bool qkv_bias = false,
+            float drop_rate = 0.0,
+            float drop_path_rate = 0.1,
+            std::vector<int> depths = {3, 4, 6, 3},
+            std::vector<int> sr_ratios = {8, 4, 2, 1},
+            int decoder_embed_dim = 256,
+            int out_channels = 3);
+    Tensor forward(Tensor x);
+
+private:
+    int img_size;
+    MixVisionTransformer encoder{nullptr};
+    Decoder decoder{nullptr};
+};
+
+TORCH_MODULE(SegFormer);
+
+class SegFormerMnistImpl : public nn::Module {
+public:
+    SegFormerMnistImpl(
+            int img_size = 28,
+            int in_chans = 1,
+            std::vector<int> embed_dims = {64, 128},
+            std::vector<int> num_heads = {2, 4},
+            std::vector<float> mlp_ratios = {4.0, 4.0},
+            bool qkv_bias = false,
+            float drop_rate = 0.0,
+            float drop_path_rate = 0.1,
+            std::vector<int> depths = {3, 3},
+            std::vector<int> sr_ratios = {2, 1},
+            int decoder_embed_dim = 256,
+            int out_channels = 1);
+    Tensor forward(Tensor x);
+
+private:
+    int img_size;
+    MixVisionTransformerMnist encoder{nullptr};
+    DecoderMnist decoder{nullptr};
+};
+
+TORCH_MODULE(SegFormerMnist);
+
+}  // namespace segformer
 
 }  // namespace ddpm
 
