@@ -90,7 +90,7 @@ UNetImpl::UNetImpl(
 
 torch::Tensor UNetImpl::forward(torch::Tensor x, torch::Tensor t) {
     // x : [B, img_channels, H, W], t : [B,]
-UNetDownsampleImpl
+
     std::vector<torch::Tensor> skips;
     torch::Tensor h = stem(x);
 
