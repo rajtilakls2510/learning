@@ -1,4 +1,5 @@
 #include <iostream>
+
 #include "network.h"
 
 using namespace ddpm::unet;
@@ -22,12 +23,38 @@ int main(int argc, char* argv[]) {
     // auto qkv_attn = QKVAttention(4);
     // Tensor inp = torch::zeros({8, (3*4*4), 64});
     // Tensor logits = qkv_attn(inp);
-    // std::cout << get_size(logits) << "\n"; 
+    // std::cout << get_size(logits) << "\n";
 
-    // AttentionBlock test
-    auto attn = AttentionBlock(4*2*32, 4);
-    Tensor inp = torch::zeros({8, 4*2*32, 64});
-    Tensor logits = attn(inp);
-    std::cout << get_size(logits) << "\n"; 
+    // // AttentionBlock test
+    // auto attn = AttentionBlock(4*2*32, 4);
+    // Tensor inp = torch::zeros({8, 4*2*32, 64});
+    // Tensor logits = attn(inp);
+    // std::cout << get_size(logits) << "\n";
+
+    // // ResBlock test
+    // auto resblock = ResBlock(32, 128, 0.1, 64, true, false, true);
+    // Tensor inp = torch::zeros({8, 32, 16, 16});
+    // Tensor inp2 = torch::zeros({8, 128});
+    // Tensor logits = resblock(inp, inp2);
+    // std::cout << get_size(logits) << "\n";
+
+    // UNetModel test
+    // auto unet = UNetModel(224, 3, 64, 1, 2, 0.1, 4);
+    // Tensor inp = torch::zeros({8, 3, 224, 224});
+    // Tensor t = torch::randint(1, 1001, {8}, torch::kLong);
+    // Tensor logits = unet(inp, t);
+    // std::cout << get_size(logits) << "\n";
+
+    // std::cout << "Num parameters: " << count_parameters(unet) << "\n";
+
+    // UNetModel test for MNIST
+    std::vector<int> cm = {2, 4, 8};
+    auto unet = UNetModel(28, 1, 32, 1, 2, 0.1, 4, 1, cm);
+    Tensor inp = torch::zeros({8, 1, 28, 28});
+    Tensor t = torch::randint(1, 1001, {8}, torch::kLong);
+    Tensor logits = unet(inp, t);
+    std::cout << get_size(logits) << "\n";
+
+    std::cout << "Num parameters: " << count_parameters(unet) << "\n";
     return 0;
 }
