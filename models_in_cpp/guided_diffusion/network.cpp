@@ -26,24 +26,24 @@ UpsampleImpl::UpsampleImpl(int channels, bool use_conv, int out_channels) : use_
 }
 
 Tensor UpsampleImpl::forward(Tensor x) {
-    x = spatial(bn(x));
+    x = spatial(x);
     if (use_conv) x = conv(x);
-    return x;
+    return bn(functional::relu(x));
 }
 
 DownsampleImpl::DownsampleImpl(int channels, bool use_conv, int out_channels) : use_conv(use_conv) {
-    bn = register_module("bn", BatchNorm2d(BatchNorm2dOptions(channels)));
-    if (use_conv)
+    bn = register_module("bn", BatchNorm2d(BatchNorm2dOptions(out_channels)));
+    // if (use_conv)
         conv = register_module(
                 "conv", Conv2d(Conv2dOptions(channels, out_channels, 3).stride(2).padding(1)));
-    else
-        pool = register_module("pool", AvgPool2d(AvgPool2dOptions({2, 2}).stride({2, 2})));
+    // else
+    //     pool = register_module("pool", AvgPool2d(AvgPool2dOptions({2, 2}).stride({2, 2})));
 }
 
 Tensor DownsampleImpl::forward(Tensor x) {
-    x = bn(x);
-    x = use_conv ? conv(x) : pool(x);
-    return x;
+    // x = use_conv ? conv(x) : pool(x);
+    x = conv(x);
+    return bn(functional::relu(x));
 }
 
 QKVAttentionImpl::QKVAttentionImpl(int nheads) : nheads(nheads) {}
@@ -72,7 +72,7 @@ AttentionBlockImpl::AttentionBlockImpl(int channels, int nheads) {
     qkv = register_module("qkv", Conv1d(Conv1dOptions(channels, 3 * channels, 1)));
     attention = register_module("attention", QKVAttention(nheads));
     proj_out = register_module("proj_out", Conv1d(Conv1dOptions(channels, channels, 1)));
-
+    
     // Zero init
     init::zeros_(proj_out->weight);
     if (proj_out->options.bias()) {
@@ -100,8 +100,8 @@ ResBlockImpl::ResBlockImpl(
     : up(up), down(down), channels(channels), out_channels(out_channels) {
     up_down = up | down;
     in_layers = Sequential();
-    in_layers->push_back(GroupNorm(GroupNormOptions(32, channels)));
     in_layers->push_back(SiLU());
+    in_layers->push_back(GroupNorm(GroupNormOptions(32, channels)));
     register_module("in_layers", in_layers);
 
     in_conv =
@@ -117,8 +117,10 @@ ResBlockImpl::ResBlockImpl(
 
     emb_layers = Sequential();
     emb_layers->push_back(SiLU());
+    emb_layers->push_back(BatchNorm1d(emb_channels));
     emb_layers->push_back(Linear(LinearOptions(emb_channels, emb_channels)));
     emb_layers->push_back(SiLU());
+    emb_layers->push_back(BatchNorm1d(emb_channels));
     emb_layers->push_back(Linear(LinearOptions(emb_channels, 2 * out_channels)));
     register_module("emb_layers", emb_layers);
 
@@ -126,6 +128,7 @@ ResBlockImpl::ResBlockImpl(
 
     out_layers = Sequential();
     out_layers->push_back(SiLU());
+    out_layers->push_back(BatchNorm2d(out_channels));
     out_layers->push_back(Dropout(DropoutOptions(drop)));
     out_layers->push_back(Conv2d(Conv2dOptions(out_channels, out_channels, 3).padding(1)));
     register_module("out_layers", out_layers);
@@ -136,6 +139,7 @@ ResBlockImpl::ResBlockImpl(
     else
         skip_connection =
                 register_module("skip_conn", Conv2d(Conv2dOptions(channels, out_channels, 1)));
+    skip_bn = register_module("skip_bn", BatchNorm2d(out_channels));
 }
 
 Tensor ResBlockImpl::forward(Tensor x, Tensor emb) {
@@ -156,6 +160,7 @@ Tensor ResBlockImpl::forward(Tensor x, Tensor emb) {
     h = out_layers->forward(h);
 
     if (channels != out_channels) h = skip_connection(x) + h;
+    h = skip_bn(functional::relu(h));
     return h;
 }
 
@@ -269,6 +274,7 @@ UNetModelImpl::UNetModelImpl(
     time_embed = Sequential();
     time_embed->push_back(Linear(model_channels, time_embed_dim));
     time_embed->push_back(SiLU());
+    time_embed->push_back(BatchNorm1d(time_embed_dim));
     register_module("time_embed", time_embed);
 
     int in_channel = model_channels * channel_mult[0];
@@ -322,8 +328,8 @@ UNetModelImpl::UNetModelImpl(
     }
 
     out = Sequential();
-    out->push_back(GroupNorm(GroupNormOptions(32, channel_mult[0] * model_channels)));
     out->push_back(SiLU());
+    out->push_back(GroupNorm(GroupNormOptions(32, channel_mult[0] * model_channels)));
     out->push_back(
             Conv2d(Conv2dOptions(channel_mult[0] * model_channels, out_channels, 3).padding(1)));
     register_module("out", out);

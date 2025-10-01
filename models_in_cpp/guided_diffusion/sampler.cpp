@@ -66,7 +66,7 @@ int main(int argc, char* argv[]) {
             /*model channels*/ 64,
             /*out channels*/ 1,
             /*num res blocks*/ 1,
-            /*dropout*/ 0.0,
+            /*dropout*/ 0.1,
             /*num heads*/ 4,
             /*begin attention after level*/ 0,
             /*channel multipliers*/ cm);

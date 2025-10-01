@@ -84,6 +84,7 @@ private:
     Downsample h_down{nullptr}, x_down{nullptr};
     Conv2d skip_connection{nullptr}, in_conv{nullptr};
     GroupNorm out_norm{nullptr};
+    BatchNorm2d skip_bn{nullptr};
 };
 TORCH_MODULE(ResBlock);
 
