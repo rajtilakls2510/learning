@@ -16,16 +16,23 @@ Tensor timestep_embedding(Tensor t, int dim) {
 
 UpsampleImpl::UpsampleImpl(int channels, bool use_conv, int out_channels) : use_conv(use_conv) {
     if (use_conv)
-        conv = register_module("conv", Conv2d(Conv2dOptions(channels, out_channels, 3).padding(1)));
+        conv = register_module(
+                "conv", Conv2d(Conv2dOptions(out_channels, out_channels, 3).padding(1)));
+    bn = register_module("bn", BatchNorm2d(BatchNorm2dOptions(out_channels)));
+    spatial = register_module(
+            "spatial",
+            ConvTranspose2d(
+                    ConvTranspose2dOptions(channels, out_channels, 4).stride(2).padding(1)));
 }
 
 Tensor UpsampleImpl::forward(Tensor x) {
-    x = interpolate(x, InterpolateFuncOptions().scale_factor(std::vector<double>{2.0, 2.0}));
+    x = spatial(bn(x));
     if (use_conv) x = conv(x);
     return x;
 }
 
 DownsampleImpl::DownsampleImpl(int channels, bool use_conv, int out_channels) : use_conv(use_conv) {
+    bn = register_module("bn", BatchNorm2d(BatchNorm2dOptions(channels)));
     if (use_conv)
         conv = register_module(
                 "conv", Conv2d(Conv2dOptions(channels, out_channels, 3).stride(2).padding(1)));
@@ -34,6 +41,7 @@ DownsampleImpl::DownsampleImpl(int channels, bool use_conv, int out_channels) : 
 }
 
 Tensor DownsampleImpl::forward(Tensor x) {
+    x = bn(x);
     x = use_conv ? conv(x) : pool(x);
     return x;
 }
@@ -103,11 +111,13 @@ ResBlockImpl::ResBlockImpl(
         h_up = register_module("h_up", Upsample(channels, false, channels));
         x_up = register_module("x_up", Upsample(channels, false, channels));
     } else {
-        h_down = register_module("h_down", Downsample(channels, false, channels));
-        x_down = register_module("x_down", Downsample(channels, false, channels));
+        h_down = register_module("h_down", Downsample(channels, true, channels));
+        x_down = register_module("x_down", Downsample(channels, true, channels));
     }
 
     emb_layers = Sequential();
+    emb_layers->push_back(SiLU());
+    emb_layers->push_back(Linear(LinearOptions(emb_channels, emb_channels)));
     emb_layers->push_back(SiLU());
     emb_layers->push_back(Linear(LinearOptions(emb_channels, 2 * out_channels)));
     register_module("emb_layers", emb_layers);
@@ -207,7 +217,7 @@ UNetBlockUpImpl::UNetBlockUpImpl(
         bool use_attn,
         bool use_up)
     : use_attn(use_attn), use_up(use_up), num_res_blocks(num_res_blocks) {
-    for (int i = 0; i < num_res_blocks + 1; i++) {
+    for (int i = 0; i < num_res_blocks; i++) {
         auto res_no_up = register_module(
                 "res_no_up_" + std::to_string(i),
                 ResBlock(
@@ -236,7 +246,7 @@ UNetBlockUpImpl::UNetBlockUpImpl(
 }
 
 Tensor UNetBlockUpImpl::forward(Tensor x, Tensor t) {
-    for (int i = 0; i < num_res_blocks + 1; i++) {
+    for (int i = 0; i < num_res_blocks; i++) {
         x = res_no_ups[i](x, t);
         if (use_attn) x = attns[i](x);
     }
@@ -259,7 +269,6 @@ UNetModelImpl::UNetModelImpl(
     time_embed = Sequential();
     time_embed->push_back(Linear(model_channels, time_embed_dim));
     time_embed->push_back(SiLU());
-    time_embed->push_back(Linear(time_embed_dim, time_embed_dim));
     register_module("time_embed", time_embed);
 
     int in_channel = model_channels * channel_mult[0];
@@ -326,7 +335,7 @@ Tensor UNetModelImpl::forward(Tensor x, Tensor t) {
 
     Tensor h = x;
     h = inp(h);
-    
+
     for (int i = 0; i < down_blocks.size(); i++) {
         h = down_blocks[i](h, emb);
         hs.push_back(h);
@@ -339,18 +348,13 @@ Tensor UNetModelImpl::forward(Tensor x, Tensor t) {
     h = mid_attn(h);
     h = mid_res2(h, emb);
 
-    // std::cout << "h: " << get_size(h) << "\n";
-
-
     for (int i = 0; i < up_blocks.size(); i++) {
         auto last = hs.back();
         hs.pop_back();
-        // std::cout << "popped: " << get_size(last) << "\n";
         h = torch::cat({h, last}, /*dim*/ 1);
-        // std::cout << "h in: " << get_size(h) << "\n";
         h = up_blocks[i](h, emb);
-        // std::cout << "hup: " << get_size(h) << "\n";
     }
+
     h = out->forward(h);
     return h;
 }

@@ -24,6 +24,8 @@ public:
 private:
     bool use_conv;
     Conv2d conv{nullptr};
+    BatchNorm2d bn{nullptr};
+    ConvTranspose2d spatial{nullptr};
 };
 TORCH_MODULE(Upsample);
 
@@ -35,6 +37,7 @@ public:
 private:
     bool use_conv;
     Conv2d conv{nullptr};
+    BatchNorm2d bn{nullptr};
     AvgPool2d pool{nullptr};
 };
 TORCH_MODULE(Downsample);
@@ -118,6 +121,7 @@ public:
             bool use_attn = false,
             bool use_up = false);
     Tensor forward(Tensor x, Tensor t);
+
 private:
     int num_res_blocks;
     bool use_attn, use_up;
