@@ -207,13 +207,13 @@ class SimpleUNetImpl : public torch::nn::Module {
 public:
     SimpleUNetImpl(
             int img_size,
-            int img_channels,
+            int in_channels,
+            int out_channels,
             int time_dim,
             std::vector<int> channel_sequence = {32, 64, 128});
     torch::Tensor forward(torch::Tensor x, torch::Tensor t);
 
 private:
-    int img_size, img_channels, time_dim;
     std::vector<int> channel_sequence;
     Conv2d stem{nullptr}, head{nullptr};
     std::vector<UNetDownsample> down_blocks;

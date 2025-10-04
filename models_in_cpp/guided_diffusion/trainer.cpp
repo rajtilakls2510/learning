@@ -37,7 +37,8 @@ Trainer::Trainer(
     //         /*channel multipliers*/ cm);
     model = unet::SimpleUNet(
             /*img_size*/ 28,
-            /*img_channels*/ 1,
+            /*in_channels*/ 1,
+            /*out_channels*/ 2,
             /*time_dim*/ 256,
             /*channel_dims*/ std::vector<int>{128, 512, 512});
     optimizer = std::make_shared<torch::optim::Adam>(
@@ -59,13 +60,18 @@ Trainer::Trainer(
     // betas = linear_schedule(max_diffusion_time)
     //                 .to(device);
     betas = cosine_beta_schedule(max_diffusion_time).to(device);
-
     alphas = 1.0 - betas;
     alphas_cumprod = torch::cumprod(alphas, /*axis*/ 0);
     alphas_cumprod_prev =
             torch::cat({torch::ones({1}).to(device), alphas_cumprod.index({Slice(0, -1)})});
     sqrt_alphas_cumprod = torch::sqrt(alphas_cumprod);
     sqrt_one_minus_alphas_cumprod = torch::sqrt(1.0 - alphas_cumprod);
+    beta_tildes = ((1 - alphas_cumprod_prev) * betas) / (1.0 - alphas_cumprod);
+    posterior_mean_coef1 = ((betas * torch::sqrt(alphas_cumprod_prev)) / (1.0 - alphas_cumprod));
+    posterior_mean_coef2 =
+            (torch::sqrt(alphas) * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod));
+    sqrt_recip_alphas_cumprod = torch::sqrt(1.0 / alphas_cumprod);
+    sqrt_recipm1_alphas_cumprod = torch::sqrt(1.0 / alphas_cumprod - 1.0);
 }
 
 torch::Tensor Trainer::q_sample(torch::Tensor x_start, torch::Tensor t, torch::Tensor noise) {
@@ -73,23 +79,55 @@ torch::Tensor Trainer::q_sample(torch::Tensor x_start, torch::Tensor t, torch::T
            extract(sqrt_one_minus_alphas_cumprod, t, x_start.sizes()) * noise;
 }
 
+torch::Tensor Trainer::predict_xstart_from_eps(
+        torch::Tensor x_t, torch::Tensor t, torch::Tensor noise) {
+    return (extract(sqrt_recip_alphas_cumprod, t, x_t.sizes()) * x_t +
+            extract(sqrt_recipm1_alphas_cumprod, t, x_t.sizes()) * noise);
+}
+
+torch::Tensor Trainer::normal_kl(
+        torch::Tensor mean1, torch::Tensor logvar1, torch::Tensor mean2, torch::Tensor logvar2) {
+    torch::Tensor exp_log_vars = torch::exp(logvar1 - logvar2);
+    torch::Tensor mean_diff_sq = torch::pow(mean1 - mean2, 2);
+    return 0.5 * (-1.0 + logvar2 - logvar1 + exp_log_vars + mean_diff_sq * torch::exp(-logvar2));
+}
+
 void Trainer::train_step(Batch batch, double* loss) {
     model->train();
     auto images = batch.images.to(device);
     images = 2 * images - 1;  // Scale between [-1,1]
-    torch::Tensor t, noise, x_noisy;
+    torch::Tensor t, noise, x_noisy, true_mean, true_log_var;
     {
         torch::NoGradGuard no_grad;
         t = torch::randint(1, max_diffusion_time + 1, {/*batch*/ batch.batch_size}, torch::kLong)
                     .to(device);
         noise = torch::randn_like(images).to(device);
         x_noisy = q_sample(images, t - 1, noise);
+
+        true_mean = extract(posterior_mean_coef1, t - 1, noise.sizes()) * images +
+                    extract(posterior_mean_coef2, t - 1, noise.sizes()) * x_noisy;
+        true_log_var = extract(torch::log(beta_tildes), t - 1, noise.sizes());
     }
 
     auto outputs = model->forward(x_noisy, t);
+    torch::Tensor noise_predicted = outputs.index({Slice(), 0});  // outputs[:, 0]
+    torch::Tensor var_predicted = outputs.index({Slice(), 1});    // outputs[:, 1]
 
-    torch::nn::MSELoss criterion;
-    auto loss_tensor = criterion(outputs, noise);
+    // torch::nn::MSELoss criterion;
+    // torch::Tensor loss_tensor = criterion(noise_predicted, noise);
+
+    torch::Tensor pred_xstart = predict_xstart_from_eps(x_noisy, t - 1, noise_predicted);
+    torch::Tensor mean_predicted =
+            extract(posterior_mean_coef1, t - 1, x_noisy.sizes()) * pred_xstart +
+            extract(posterior_mean_coef2, t - 1, noise.sizes()) * x_noisy;
+
+    torch::Tensor min_log = extract(torch::log(beta_tildes), t - 1, x_noisy.sizes());
+    torch::Tensor max_log = extract(torch::log(betas), t - 1, x_noisy.sizes());
+    torch::Tensor frac = (var_predicted + 1) / 2;
+    torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
+
+    torch::Tensor kl = normal_kl(true_mean, true_log_var, mean_predicted, log_var_predicted);
+    torch::Tensor loss_tensor = torch::mean(kl) / torch::log(torch::tensor(2.0f));
 
     optimizer->zero_grad();
     loss_tensor.backward();

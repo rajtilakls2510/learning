@@ -425,10 +425,14 @@ torch::Tensor UNetUpsampleImpl::forward(torch::Tensor x, torch::Tensor t) {
 }
 
 SimpleUNetImpl::SimpleUNetImpl(
-        int img_size, int img_channels, int time_dim, std::vector<int> channel_sequence) {
+        int img_size,
+        int in_channels,
+        int out_channels,
+        int time_dim,
+        std::vector<int> channel_sequence) {
     stem = register_module(
             "stem",
-            Conv2d(Conv2dOptions(img_channels, channel_sequence[0], 3).padding(1).bias(true)));
+            Conv2d(Conv2dOptions(in_channels, channel_sequence[0], 3).padding(1).bias(true)));
 
     for (int i = 1; i < channel_sequence.size(); i++) {
         auto down_block = UNetDownsample(
@@ -445,11 +449,11 @@ SimpleUNetImpl::SimpleUNetImpl(
     }
 
     head = register_module(
-            "head", Conv2d(Conv2dOptions(channel_sequence[0], img_channels, 1).bias(true)));
+            "head", Conv2d(Conv2dOptions(channel_sequence[0], out_channels, 1).bias(true)));
 }
 
 torch::Tensor SimpleUNetImpl::forward(torch::Tensor x, torch::Tensor t) {
-    // x : [B, img_channels, H, W], t : [B,]
+    // x : [B, in_channels, H, W], t : [B,]
 
     std::vector<torch::Tensor> skips;
     torch::Tensor h = stem(x);
@@ -462,7 +466,7 @@ torch::Tensor SimpleUNetImpl::forward(torch::Tensor x, torch::Tensor t) {
     for (int i = 0; i < up_blocks.size(); i++) {
         h = up_blocks[i](torch::cat({h, skips[(int)up_blocks.size() - i - 1]}, /*dim*/ 1), t);
     }
-    return head(h);
+    return head(h);  // [B, out_channels, H, W]
 }
 
 }  // namespace ddpm::unet

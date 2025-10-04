@@ -18,6 +18,7 @@ public:
             int max_diffusion_time,
             bool use_cpu = false);
 
+    torch::Tensor predict_xstart_from_eps(torch::Tensor x_t, torch::Tensor t, torch::Tensor noise);
     torch::Tensor q_sample(torch::Tensor x_start, torch::Tensor t, torch::Tensor noise);
     void train_step(Batch batch, double* loss /*TODO Metrics*/);
     void test_step(Batch batch, double* loss /*TODO Metrics*/);
@@ -32,7 +33,11 @@ private:
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr};
 
     torch::Tensor betas, alphas, alphas_cumprod, alphas_cumprod_prev, sqrt_alphas_cumprod,
-            sqrt_one_minus_alphas_cumprod;
+            sqrt_one_minus_alphas_cumprod, beta_tildes, posterior_mean_coef1, posterior_mean_coef2,
+            sqrt_recip_alphas_cumprod, sqrt_recipm1_alphas_cumprod;
+
+    torch::Tensor normal_kl(
+            torch::Tensor mean1, torch::Tensor logvar1, torch::Tensor mean2, torch::Tensor logvar2);
 };
 
 }  // namespace ddpm

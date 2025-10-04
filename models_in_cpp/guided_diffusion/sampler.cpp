@@ -72,7 +72,8 @@ int main(int argc, char* argv[]) {
     //         /*channel multipliers*/ cm);
     auto model = unet::SimpleUNet(
             /*img_size*/ 28,
-            /*img_channels*/ 1,
+            /*in_channels*/ 1,
+            /*out_channels*/ 2,
             /*time_dim*/ 256,
             /*channel_dims*/ std::vector<int>{128, 512, 512});
     torch::load(model, checkpoint_path + "/model.pth");
