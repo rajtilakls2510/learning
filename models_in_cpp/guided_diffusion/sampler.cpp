@@ -59,17 +59,22 @@ int main(int argc, char* argv[]) {
     std::string checkpoint_path = argv[1];
     int max_diffusion_time = 1000;
 
-    std::vector<int> cm = {2, 4, 4};
-    auto model = unet::UNetModel(
-            /*img size*/ 28,
-            /*in channels*/ 1,
-            /*model channels*/ 64,
-            /*out channels*/ 1,
-            /*num res blocks*/ 1,
-            /*dropout*/ 0.1,
-            /*num heads*/ 4,
-            /*begin attention after level*/ 0,
-            /*channel multipliers*/ cm);
+    // std::vector<int> cm = {2, 4, 4};
+    // auto model = unet::UNetModel(
+    //         /*img size*/ 28,
+    //         /*in channels*/ 1,
+    //         /*model channels*/ 64,
+    //         /*out channels*/ 1,
+    //         /*num res blocks*/ 1,
+    //         /*dropout*/ 0.1,
+    //         /*num heads*/ 4,
+    //         /*begin attention after level*/ 0,
+    //         /*channel multipliers*/ cm);
+    auto model = unet::SimpleUNet(
+            /*img_size*/ 28,
+            /*img_channels*/ 1,
+            /*time_dim*/ 256,
+            /*channel_dims*/ std::vector<int>{128, 512, 512});
     torch::load(model, checkpoint_path + "/model.pth");
     model->to(device);
     model->eval();

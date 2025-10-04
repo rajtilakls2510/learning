@@ -24,17 +24,22 @@ Trainer::Trainer(
 
     std::cout << "Using device: " << (device.is_cuda() ? "CUDA" : "CPU") << "\n";
 
-    std::vector<int> cm = {2, 4, 4};
-    model = unet::UNetModel(
-            /*img size*/ 28,
-            /*in channels*/ 1,
-            /*model channels*/ 64,
-            /*out channels*/ 1,
-            /*num res blocks*/ 1,
-            /*dropout*/ 0.1,
-            /*num heads*/ 4,
-            /*begin attention after level*/ 0,
-            /*channel multipliers*/ cm);
+    // std::vector<int> cm = {2, 4, 4};
+    // model = unet::UNetModel(
+    //         /*img size*/ 28,
+    //         /*in channels*/ 1,
+    //         /*model channels*/ 64,
+    //         /*out channels*/ 1,
+    //         /*num res blocks*/ 1,
+    //         /*dropout*/ 0.1,
+    //         /*num heads*/ 4,
+    //         /*begin attention after level*/ 0,
+    //         /*channel multipliers*/ cm);
+    model = unet::SimpleUNet(
+            /*img_size*/ 28,
+            /*img_channels*/ 1,
+            /*time_dim*/ 256,
+            /*channel_dims*/ std::vector<int>{128, 512, 512});
     optimizer = std::make_shared<torch::optim::Adam>(
             model->parameters(), torch::optim::AdamOptions(1e-4));
     if (!fs::exists(cp / "model.pth")) {

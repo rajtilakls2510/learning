@@ -9,7 +9,7 @@
 #include "network.h"
 
 namespace ddpm {
-    using namespace MNIST;
+using namespace MNIST;
 
 class Trainer {
 public:
@@ -27,7 +27,8 @@ private:
     torch::Device device{torch::kCPU};
     std::string data_path, checkpoint_path;
     int max_diffusion_time;
-    unet::UNetModel model{nullptr};
+    // unet::UNetModel model{nullptr};
+    unet::SimpleUNet model{nullptr};
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr};
 
     torch::Tensor betas, alphas, alphas_cumprod, alphas_cumprod_prev, sqrt_alphas_cumprod,
