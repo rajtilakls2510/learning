@@ -68,7 +68,7 @@ Tensor QKVAttentionImpl::forward(Tensor qkv) {
 }
 
 AttentionBlockImpl::AttentionBlockImpl(int channels, int nheads) {
-    norm = register_module("norm", GroupNorm(GroupNormOptions(32, channels)));
+    norm = register_module("norm", GroupNorm(GroupNormOptions(4, channels)));
     qkv = register_module("qkv", Conv1d(Conv1dOptions(channels, 3 * channels, 1)));
     attention = register_module("attention", QKVAttention(nheads));
     proj_out = register_module("proj_out", Conv1d(Conv1dOptions(channels, channels, 1)));
@@ -100,7 +100,7 @@ ResBlockImpl::ResBlockImpl(
     : up(up), down(down), channels(channels), out_channels(out_channels) {
     up_down = up | down;
     in_layers = Sequential();
-    in_layers->push_back(GroupNorm(GroupNormOptions(32, channels)));
+    in_layers->push_back(GroupNorm(GroupNormOptions(4, channels)));
     in_layers->push_back(SiLU());
     register_module("in_layers", in_layers);
 
@@ -124,7 +124,7 @@ ResBlockImpl::ResBlockImpl(
     emb_layers->push_back(Linear(LinearOptions(emb_channels, 2 * out_channels)));
     register_module("emb_layers", emb_layers);
 
-    out_norm = register_module("out_norm", GroupNorm(GroupNormOptions(32, out_channels)));
+    out_norm = register_module("out_norm", GroupNorm(GroupNormOptions(4, out_channels)));
 
     out_layers = Sequential();
     out_layers->push_back(BatchNorm2d(out_channels));
@@ -328,7 +328,7 @@ UNetModelImpl::UNetModelImpl(
     }
 
     out = Sequential();
-    out->push_back(GroupNorm(GroupNormOptions(32, channel_mult[0] * model_channels)));
+    out->push_back(GroupNorm(GroupNormOptions(4, channel_mult[0] * model_channels)));
     out->push_back(SiLU());
     out->push_back(
             Conv2d(Conv2dOptions(channel_mult[0] * model_channels, out_channels, 3).padding(1)));

@@ -59,23 +59,23 @@ int main(int argc, char* argv[]) {
     std::string checkpoint_path = argv[1];
     int max_diffusion_time = 1000;
 
-    //     std::vector<int> cm = {2, 4, 4};
-    //     auto model = unet::UNetModel(
-    //             /*img size*/ 28,
-    //             /*in channels*/ 1,
-    //             /*model channels*/ 64,
-    //             /*out channels*/ 2,
-    //             /*num res blocks*/ 1,
-    //             /*dropout*/ 0.1,
-    //             /*num heads*/ 4,
-    //             /*begin attention after level*/ 0,
-    //             /*channel multipliers*/ cm);
-    auto model = unet::SimpleUNet(
-            /*img_size*/ 28,
-            /*in_channels*/ 1,
-            /*out_channels*/ 1,
-            /*time_dim*/ 256,
-            /*channel_dims*/ std::vector<int>{128, 256, 512});
+    std::vector<int> cm = {2, 2, 4};
+    auto model = unet::UNetModel(
+            /*img size*/ 28,
+            /*in channels*/ 1,
+            /*model channels*/ 64,
+            /*out channels*/ 1,
+            /*num res blocks*/ 1,
+            /*dropout*/ 0.1,
+            /*num heads*/ 4,
+            /*begin attention after level*/ 1,
+            /*channel multipliers*/ cm);
+    //     auto model = unet::SimpleUNet(
+    //             /*img_size*/ 28,
+    //             /*in_channels*/ 1,
+    //             /*out_channels*/ 1,
+    //             /*time_dim*/ 256,
+    //             /*channel_dims*/ std::vector<int>{128, 256, 512});
     torch::load(model, checkpoint_path + "/model.pth");
     model->to(device);
     model->eval();
@@ -151,7 +151,7 @@ int main(int argc, char* argv[]) {
         torch::Tensor log_var = extract(posterior_log_var, timesteps - 1, x.sizes());
 
         // if (t != 1) x += torch::exp(0.5 * log_var_predicted) * z;
-        if (t != 1) x += torch::exp(0.5 * log_var) * z;
+        x += torch::exp(0.5 * log_var) * z;
 
         // Clamp and scale to [0,1]
         auto x_vis = torch::clamp(x, -1.0, 1.0);
