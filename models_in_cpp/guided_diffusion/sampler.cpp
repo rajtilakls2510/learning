@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
             /*in_channels*/ 1,
             /*out_channels*/ 2,
             /*time_dim*/ 256,
-            /*channel_dims*/ std::vector<int>{128, 512, 512});
+            /*channel_dims*/ std::vector<int>{64, 256, 256});
     torch::load(model, checkpoint_path + "/model.pth");
     model->to(device);
     model->eval();
@@ -88,10 +88,18 @@ int main(int argc, char* argv[]) {
     torch::Tensor alphas_cumprod_prev =
             torch::cat({torch::ones({1}).to(device), alphas_cumprod.index({Slice(0, -1)})});
     torch::Tensor sqrt_one_minus_alphas_cumprod = torch::sqrt(1.0 - alphas_cumprod);
-    torch::Tensor beta_tildes = ((1 - alphas_cumprod_prev) * betas) / (1.0 - alphas_cumprod);
+    torch::Tensor posterior_variance = ((1 - alphas_cumprod_prev) * betas) / (1.0 - alphas_cumprod);
+    torch::Tensor posterior_log_var = torch::log(torch::cat(
+            {posterior_variance.index({Slice(1, 2)}), posterior_variance.index({Slice(1, None)})}));
+    torch::Tensor posterior_mean_coef1 =
+            ((betas * torch::sqrt(alphas_cumprod_prev)) / (1.0 - alphas_cumprod));
+    torch::Tensor posterior_mean_coef2 =
+            (torch::sqrt(alphas) * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod));
+    torch::Tensor sqrt_recip_alphas_cumprod = torch::sqrt(1.0 / alphas_cumprod);
+    torch::Tensor sqrt_recipm1_alphas_cumprod = torch::sqrt(1.0 / alphas_cumprod - 1.0);
 
     torch::NoGradGuard no_grad;
-    int batch_size = 8;  // show 8 samples at once
+    int batch_size = 16;  // show 8 samples at once
 
     torch::Tensor x = torch::randn({batch_size, 1, 28, 28}).to(device);
 
@@ -114,18 +122,25 @@ int main(int argc, char* argv[]) {
         torch::Tensor z = torch::randn_like(x).to(device);
         if (t == 1) z = torch::zeros_like(x).to(device);
 
-        auto predicted_noise = model->forward(x, timesteps);
+        // auto predicted_noise = model->forward(x, timesteps);
+        auto outputs = model->forward(x, timesteps);
+        torch::Tensor noise_predicted = outputs.index({Slice(), Slice(0, 1)});   // outputs[:, 0:1]
+        torch::Tensor var_predicted = outputs.index({Slice(), Slice(1, None)});  // outputs[:, 1:]
+        var_predicted.clamp_(-1.0, 1.0);
 
-        torch::Tensor sqrt_alpha_t = torch::sqrt(extract(alphas, timesteps - 1, x.sizes()));
-        torch::Tensor sqrt_one_minus_alphas_cumprod_t =
-                extract(sqrt_one_minus_alphas_cumprod, timesteps - 1, x.sizes());
-        torch::Tensor beta_t = extract(betas, timesteps - 1, x.sizes());
+        torch::Tensor pred_xstart =
+                extract(sqrt_recip_alphas_cumprod, timesteps - 1, x.sizes()) * x +
+                extract(sqrt_recipm1_alphas_cumprod, timesteps - 1, x.sizes()) * noise_predicted;
+        pred_xstart.clamp_(-1.0, 1.0);
+        x = extract(posterior_mean_coef1, timesteps - 1, x.sizes()) * pred_xstart +
+            extract(posterior_mean_coef2, timesteps - 1, x.sizes()) * x;
 
-        x = (1.0 / sqrt_alpha_t) * (x - beta_t * predicted_noise / sqrt_one_minus_alphas_cumprod_t);
+        torch::Tensor min_log = extract(posterior_log_var, timesteps - 1, x.sizes());
+        torch::Tensor max_log = extract(torch::log(betas), timesteps - 1, x.sizes());
+        torch::Tensor frac = (var_predicted + 1) / 2;
+        torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
 
-        torch::Tensor sqrt_beta_tilde_t =
-                torch::sqrt(extract(beta_tildes, timesteps - 1, x.sizes()));
-        x += sqrt_beta_tilde_t * z;
+        x += torch::exp(0.5 * log_var_predicted) * z;
 
         // Clamp and scale to [0,1]
         auto x_vis = torch::clamp(x, -1.0, 1.0);

@@ -33,7 +33,7 @@ private:
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr};
 
     torch::Tensor betas, alphas, alphas_cumprod, alphas_cumprod_prev, sqrt_alphas_cumprod,
-            sqrt_one_minus_alphas_cumprod, beta_tildes, posterior_mean_coef1, posterior_mean_coef2,
+            sqrt_one_minus_alphas_cumprod, posterior_variance, posterior_log_var, posterior_mean_coef1, posterior_mean_coef2,
             sqrt_recip_alphas_cumprod, sqrt_recipm1_alphas_cumprod;
 
     torch::Tensor normal_kl(
