@@ -75,7 +75,7 @@ int main(int argc, char* argv[]) {
             /*in_channels*/ 1,
             /*out_channels*/ 2,
             /*time_dim*/ 256,
-            /*channel_dims*/ std::vector<int>{64, 256, 256});
+            /*channel_dims*/ std::vector<int>{128, 256, 512});
     torch::load(model, checkpoint_path + "/model.pth");
     model->to(device);
     model->eval();
@@ -99,7 +99,7 @@ int main(int argc, char* argv[]) {
     torch::Tensor sqrt_recipm1_alphas_cumprod = torch::sqrt(1.0 / alphas_cumprod - 1.0);
 
     torch::NoGradGuard no_grad;
-    int batch_size = 16;  // show 8 samples at once
+    int batch_size = 8;  // show 8 samples at once
 
     torch::Tensor x = torch::randn({batch_size, 1, 28, 28}).to(device);
 
@@ -109,6 +109,8 @@ int main(int argc, char* argv[]) {
     auto now = std::chrono::system_clock::now();
     auto epoch_seconds =
             std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    std::string image_path =
+            checkpoint_path + "/diffusion_" + std::to_string(epoch_seconds) + ".png";
     std::string video_path =
             checkpoint_path + "/diffusion_" + std::to_string(epoch_seconds) + ".mp4";
 
@@ -128,19 +130,26 @@ int main(int argc, char* argv[]) {
         torch::Tensor var_predicted = outputs.index({Slice(), Slice(1, None)});  // outputs[:, 1:]
         var_predicted.clamp_(-1.0, 1.0);
 
-        torch::Tensor pred_xstart =
-                extract(sqrt_recip_alphas_cumprod, timesteps - 1, x.sizes()) * x +
-                extract(sqrt_recipm1_alphas_cumprod, timesteps - 1, x.sizes()) * noise_predicted;
-        pred_xstart.clamp_(-1.0, 1.0);
-        x = extract(posterior_mean_coef1, timesteps - 1, x.sizes()) * pred_xstart +
-            extract(posterior_mean_coef2, timesteps - 1, x.sizes()) * x;
+        // torch::Tensor pred_xstart =
+        //         extract(sqrt_recip_alphas_cumprod, timesteps - 1, x.sizes()) * x +
+        //         extract(sqrt_recipm1_alphas_cumprod, timesteps - 1, x.sizes()) * noise_predicted;
+        // pred_xstart.clamp_(-1.0, 1.0);
+        // x = extract(posterior_mean_coef1, timesteps - 1, x.sizes()) * pred_xstart +
+        //     extract(posterior_mean_coef2, timesteps - 1, x.sizes()) * x;
+
+        torch::Tensor sqrt_alpha_t = torch::sqrt(extract(alphas, timesteps - 1, x.sizes()));
+        torch::Tensor sqrt_one_minus_alphas_cumprod_t =
+                extract(sqrt_one_minus_alphas_cumprod, timesteps - 1, x.sizes());
+        torch::Tensor beta_t = extract(betas, timesteps - 1, x.sizes());
+
+        x = (1.0 / sqrt_alpha_t) * (x - beta_t * noise_predicted / sqrt_one_minus_alphas_cumprod_t);
 
         torch::Tensor min_log = extract(posterior_log_var, timesteps - 1, x.sizes());
         torch::Tensor max_log = extract(torch::log(betas), timesteps - 1, x.sizes());
         torch::Tensor frac = (var_predicted + 1) / 2;
         torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
 
-        x += torch::exp(0.5 * log_var_predicted) * z;
+        if (t != 1) x += torch::exp(0.5 * log_var_predicted) * z;
 
         // Clamp and scale to [0,1]
         auto x_vis = torch::clamp(x, -1.0, 1.0);
@@ -177,6 +186,11 @@ int main(int argc, char* argv[]) {
         writer.release();
         std::cout << "Video saved at: " << video_path << "\n";
     }
+
+    // Save the final generated image
+    cv::imwrite(image_path, batch_to_mat(torch::clamp(x, -1.0, 1.0).add(1).div(2), 10));
+
+    std::cout << "Final image saved at: " << image_path << "\n";
 
     cv::destroyAllWindows();
     return 0;

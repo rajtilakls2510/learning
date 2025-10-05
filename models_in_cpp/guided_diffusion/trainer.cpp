@@ -40,9 +40,9 @@ Trainer::Trainer(
             /*in_channels*/ 1,
             /*out_channels*/ 2,
             /*time_dim*/ 256,
-            /*channel_dims*/ std::vector<int>{64, 256, 256});
+            /*channel_dims*/ std::vector<int>{128, 256, 512});
     optimizer = std::make_shared<torch::optim::Adam>(
-            model->parameters(), torch::optim::AdamOptions(1e-3));
+            model->parameters(), torch::optim::AdamOptions(3e-4));
     if (!fs::exists(cp / "model.pth")) {
         std::cout << "Did not find model. Saving initial model...\n";
         torch::save(model, (cp / "model.pth").string());
@@ -116,8 +116,8 @@ void Trainer::train_step(Batch batch, double* loss) {
     torch::Tensor var_predicted = outputs.index({Slice(), Slice(1, None)});  // outputs[:, 1:]
     var_predicted.clamp_(-1.0, 1.0);
 
-    torch::Tensor pred_xstart =
-            predict_xstart_from_eps(x_noisy, t - 1, noise_predicted).clamp(-1.0, 1.0);
+    torch::Tensor pred_xstart = predict_xstart_from_eps(x_noisy, t - 1, noise_predicted);
+    pred_xstart.clamp_(-1.0, 1.0);
     torch::Tensor mean_predicted =
             extract(posterior_mean_coef1, t - 1, x_noisy.sizes()) * pred_xstart +
             extract(posterior_mean_coef2, t - 1, noise.sizes()) * x_noisy;
@@ -127,8 +127,23 @@ void Trainer::train_step(Batch batch, double* loss) {
     torch::Tensor frac = (var_predicted + 1) / 2;
     torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
 
-    torch::Tensor kl = normal_kl(true_mean, true_log_var, mean_predicted, log_var_predicted);
-    torch::Tensor loss_tensor = torch::mean(kl) / torch::log(torch::tensor(2.0f));
+    std::vector<int64_t> mean_dims;
+    for (int i = 1; i < images.dim(); i++) mean_dims.emplace_back(i);
+
+    torch::Tensor kl = normal_kl(true_mean, true_log_var, mean_predicted, log_var_predicted)
+                               .mean(torch::IntArrayRef(mean_dims));
+    torch::Tensor decoder_nll =
+            -discretized_gaussian_log_likelihood(images, mean_predicted, 0.5 * log_var_predicted)
+                     .mean(torch::IntArrayRef(mean_dims));
+
+    torch::Tensor vlb =
+            torch::where((t - 1) == 0, decoder_nll, kl).mean() / torch::log(torch::tensor(2.0f));
+    vlb *= max_diffusion_time;
+
+    torch::nn::MSELoss mse_criterion;
+    torch::Tensor mse = mse_criterion(noise_predicted, noise);
+
+    torch::Tensor loss_tensor = mse + 0.001 * vlb;
 
     optimizer->zero_grad();
     loss_tensor.backward();
@@ -157,8 +172,8 @@ void Trainer::test_step(Batch batch, double* loss) {
     torch::Tensor var_predicted = outputs.index({Slice(), Slice(1, None)});  // outputs[:, 1:]
     var_predicted.clamp_(-1.0, 1.0);
 
-    torch::Tensor pred_xstart =
-            predict_xstart_from_eps(x_noisy, t - 1, noise_predicted).clamp(-1.0, 1.0);
+    torch::Tensor pred_xstart = predict_xstart_from_eps(x_noisy, t - 1, noise_predicted);
+    pred_xstart.clamp_(-1.0, 1.0);
     torch::Tensor mean_predicted =
             extract(posterior_mean_coef1, t - 1, x_noisy.sizes()) * pred_xstart +
             extract(posterior_mean_coef2, t - 1, noise.sizes()) * x_noisy;
@@ -168,8 +183,23 @@ void Trainer::test_step(Batch batch, double* loss) {
     torch::Tensor frac = (var_predicted + 1) / 2;
     torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
 
-    torch::Tensor kl = normal_kl(true_mean, true_log_var, mean_predicted, log_var_predicted);
-    torch::Tensor loss_tensor = torch::mean(kl) / torch::log(torch::tensor(2.0f));
+    std::vector<int64_t> mean_dims;
+    for (int i = 1; i < images.dim(); i++) mean_dims.emplace_back(i);
+
+    torch::Tensor kl = normal_kl(true_mean, true_log_var, mean_predicted, log_var_predicted)
+                               .mean(torch::IntArrayRef(mean_dims));
+    torch::Tensor decoder_nll =
+            -discretized_gaussian_log_likelihood(images, mean_predicted, 0.5 * log_var_predicted)
+                     .mean(torch::IntArrayRef(mean_dims));
+
+    torch::Tensor vlb =
+            torch::where((t - 1) == 0, decoder_nll, kl).mean() / torch::log(torch::tensor(2.0f));
+    vlb *= max_diffusion_time;
+
+    torch::nn::MSELoss mse_criterion;
+    torch::Tensor mse = mse_criterion(noise_predicted, noise);
+
+    torch::Tensor loss_tensor = mse + 0.001 * vlb;
 
     *loss = loss_tensor.item<double>();
 }
