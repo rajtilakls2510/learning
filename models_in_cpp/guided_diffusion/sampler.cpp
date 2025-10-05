@@ -59,21 +59,21 @@ int main(int argc, char* argv[]) {
     std::string checkpoint_path = argv[1];
     int max_diffusion_time = 1000;
 
-    // std::vector<int> cm = {2, 4, 4};
-    // auto model = unet::UNetModel(
-    //         /*img size*/ 28,
-    //         /*in channels*/ 1,
-    //         /*model channels*/ 64,
-    //         /*out channels*/ 1,
-    //         /*num res blocks*/ 1,
-    //         /*dropout*/ 0.1,
-    //         /*num heads*/ 4,
-    //         /*begin attention after level*/ 0,
-    //         /*channel multipliers*/ cm);
+    //     std::vector<int> cm = {2, 4, 4};
+    //     auto model = unet::UNetModel(
+    //             /*img size*/ 28,
+    //             /*in channels*/ 1,
+    //             /*model channels*/ 64,
+    //             /*out channels*/ 2,
+    //             /*num res blocks*/ 1,
+    //             /*dropout*/ 0.1,
+    //             /*num heads*/ 4,
+    //             /*begin attention after level*/ 0,
+    //             /*channel multipliers*/ cm);
     auto model = unet::SimpleUNet(
             /*img_size*/ 28,
             /*in_channels*/ 1,
-            /*out_channels*/ 2,
+            /*out_channels*/ 1,
             /*time_dim*/ 256,
             /*channel_dims*/ std::vector<int>{128, 256, 512});
     torch::load(model, checkpoint_path + "/model.pth");
@@ -126,9 +126,9 @@ int main(int argc, char* argv[]) {
 
         // auto predicted_noise = model->forward(x, timesteps);
         auto outputs = model->forward(x, timesteps);
-        torch::Tensor noise_predicted = outputs.index({Slice(), Slice(0, 1)});   // outputs[:, 0:1]
-        torch::Tensor var_predicted = outputs.index({Slice(), Slice(1, None)});  // outputs[:, 1:]
-        var_predicted.clamp_(-1.0, 1.0);
+        torch::Tensor noise_predicted = outputs.index({Slice(), Slice(0, 1)});  // outputs[:, 0:1]
+        // torch::Tensor var_predicted = outputs.index({Slice(), Slice(1, None)});  // outputs[:,
+        // 1:] var_predicted.clamp_(-1.0, 1.0);
 
         // torch::Tensor pred_xstart =
         //         extract(sqrt_recip_alphas_cumprod, timesteps - 1, x.sizes()) * x +
@@ -144,12 +144,14 @@ int main(int argc, char* argv[]) {
 
         x = (1.0 / sqrt_alpha_t) * (x - beta_t * noise_predicted / sqrt_one_minus_alphas_cumprod_t);
 
-        torch::Tensor min_log = extract(posterior_log_var, timesteps - 1, x.sizes());
-        torch::Tensor max_log = extract(torch::log(betas), timesteps - 1, x.sizes());
-        torch::Tensor frac = (var_predicted + 1) / 2;
-        torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
+        // torch::Tensor min_log = extract(posterior_log_var, timesteps - 1, x.sizes());
+        // torch::Tensor max_log = extract(torch::log(betas), timesteps - 1, x.sizes());
+        // torch::Tensor frac = (var_predicted + 1) / 2;
+        // torch::Tensor log_var_predicted = frac * max_log + (1 - frac) * min_log;
+        torch::Tensor log_var = extract(posterior_log_var, timesteps - 1, x.sizes());
 
-        if (t != 1) x += torch::exp(0.5 * log_var_predicted) * z;
+        // if (t != 1) x += torch::exp(0.5 * log_var_predicted) * z;
+        if (t != 1) x += torch::exp(0.5 * log_var) * z;
 
         // Clamp and scale to [0,1]
         auto x_vis = torch::clamp(x, -1.0, 1.0);

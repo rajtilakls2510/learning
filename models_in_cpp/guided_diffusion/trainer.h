@@ -28,7 +28,7 @@ private:
     torch::Device device{torch::kCPU};
     std::string data_path, checkpoint_path;
     int max_diffusion_time;
-    // unet::UNetModel model{nullptr};
+//     unet::UNetModel model{nullptr};
     unet::SimpleUNet model{nullptr};
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr};
 
