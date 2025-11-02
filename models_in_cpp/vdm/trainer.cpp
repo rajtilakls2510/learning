@@ -35,16 +35,8 @@ Trainer::Trainer(
             /* mid_features */ 1024,
             /* gamma_min */ -13.3,
             /* gamma_max*/ 5.0);
-    // classifier = unet::SimpleUNetClassifier(
-    //         /*img_size*/ 28,
-    //         /*in_channels*/ 1,
-    //         /*num_classes*/ 10,
-    //         /*time_dim*/ 256,
-    //         /*channel_dims*/ std::vector<int>{128, 256, 512});
     optimizer = std::make_shared<torch::optim::Adam>(
             model->parameters(), torch::optim::AdamOptions(3e-4));
-    // classifier_optimizer = std::make_shared<torch::optim::Adam>(
-    //         classifier->parameters(), torch::optim::AdamOptions(3e-4));
     gamma_optimizer = std::make_shared<torch::optim::Adam>(
             gamma->parameters(), torch::optim::AdamOptions(3e-4));
     if (!fs::exists(cp / "model.pth")) {
@@ -58,17 +50,6 @@ Trainer::Trainer(
     }
     model->to(device);
 
-    // if (!fs::exists(cp / "classifier.pth")) {
-    //     std::cout << "Did not find classifier. Saving initial classifier...\n";
-    //     torch::save(classifier, (cp / "classifier.pth").string());
-    //     torch::save(*classifier_optimizer, (cp / "classifier_optim.pth").string());
-    // } else {
-    //     torch::load(classifier, (cp / "classifier.pth").string());
-    //     torch::load(*classifier_optimizer, (cp / "classifier_optim.pth").string());
-    //     std::cout << "Loaded classifier and optimizer.\n";
-    // }
-    // classifier->to(device);
-
     if (!fs::exists(cp / "gamma.pth")) {
         std::cout << "Did not find learnable schedule. Saving initial learnable schedule...\n";
         torch::save(gamma, (cp / "gamma.pth").string());
@@ -81,7 +62,6 @@ Trainer::Trainer(
     gamma->to(device);
 
     std::cout << "Num Parameters (model): " << net::count_parameters(model) << "\n";
-    // std::cout << "Num Parameters (classifier): " << net::count_parameters(classifier) << "\n";
     std::cout << "Num Parameters (learnable schedule): " << net::count_parameters(gamma) << "\n";
 }
 
@@ -249,8 +229,8 @@ void Trainer::learn(int epochs, int batch_size) {
         fs::path cp(checkpoint_path);
         torch::save(model, (cp / "model.pth").string());
         torch::save(*optimizer, (cp / "optim.pth").string());
-        // torch::save(classifier, (cp / "classifier.pth").string());
-        // torch::save(*classifier_optimizer, (cp / "classifier_optim.pth").string());
+        torch::save(gamma, (cp / "gamma.pth").string());
+        torch::save(*gamma_optimizer, (cp / "gamma_optim.pth").string());
 
         // Test
         n_batch = 0;

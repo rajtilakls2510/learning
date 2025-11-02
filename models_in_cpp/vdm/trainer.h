@@ -4,7 +4,6 @@
 #include <filesystem>
 #include <string>
 
-// #include "diffusion_utils.h"
 #include "mnist_loader.hpp"
 #include "network.h"
 
@@ -32,7 +31,6 @@ private:
     int max_diffusion_time;
     unet::ScoreModel model{nullptr};
     unet::NoiseNet gamma{nullptr};
-    //     unet::SimpleUNetClassifier classifier{nullptr};
     std::shared_ptr<torch::optim::Adam> optimizer{nullptr}, gamma_optimizer{nullptr};
 };
 
