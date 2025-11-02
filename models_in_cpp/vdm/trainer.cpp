@@ -26,8 +26,8 @@ Trainer::Trainer(
 
     model = unet::ScoreModel(
             /* in_out_channels */ 1,
-            /* n_res_layers */ 3,
-            /* n_embed */ 128,
+            /* n_res_layers */ 5,
+            /* n_embed */ 192,
             /* gamma_min */ -13.3,
             /* gamma_max */ 5.0,
             max_diffusion_time);
@@ -68,69 +68,83 @@ Trainer::Trainer(
 torch::Tensor Trainer::encode(torch::Tensor x) { return 2 * x - 1; }
 
 torch::Tensor Trainer::decode(torch::Tensor z, torch::Tensor g_0) {
-    torch::Tensor x_vals = torch::arange(0, vocab_size + 1).unsqueeze(-1) / vocab_size;
-    x_vals = x_vals.repeat({1, 1}).to(z.device());
-    x_vals = encode(x_vals).transpose(1, 0).unsqueeze(0).unsqueeze(-2).unsqueeze(-2);
-    torch::Tensor inv_stddev = torch::exp(-0.5 * g_0);
-    torch::Tensor logits = -0.5 * torch::pow((z.unsqueeze(-1) - x_vals) / inv_stddev, 2);
-    return torch::nn::functional::log_softmax(logits, /*dim*/ -1);
+    // z: [B,C,H,W], g_0: [1,1]
+    torch::Tensor x_vals = torch::arange(0, vocab_size + 1).unsqueeze(-1) / vocab_size;  // [VS+1,1]
+    x_vals = x_vals.repeat({1, 1}).to(z.device());                                       // [VS+1,1]
+    x_vals = encode(x_vals).transpose(1, 0).unsqueeze(0).unsqueeze(-2).unsqueeze(
+            -2);                                        // [1,1,1,1,VS+1]
+    torch::Tensor inv_stddev = torch::exp(-0.5 * g_0);  // [1,1]
+    torch::Tensor logits =
+            -0.5 * torch::pow((z.unsqueeze(-1) - x_vals) / inv_stddev, 2);  // [B,C,H,W,VS+1]
+    return torch::nn::functional::log_softmax(logits, /*dim*/ -1);          // [B,C,H,W,VS+1]
 }
 
 torch::Tensor Trainer::logprob(torch::Tensor x, torch::Tensor z, torch::Tensor g_0) {
-    x = (x * vocab_size).round().to(torch::kLong);
-    auto x_onehot =
-            torch::nn::functional::one_hot(x, vocab_size + 1).to(torch::kFloat).to(x.device());
-    auto logprobs = decode(z, g_0);
-    return (x_onehot * logprobs).mean({1, 2, 3, 4});
+    // x: [B,C,H,W], z: [B,C,H,W], g_0: [1,1]
+    x = (x * vocab_size).round().to(torch::kLong);  // [B,C,H,W]
+    auto x_onehot = torch::nn::functional::one_hot(x, vocab_size + 1)
+                            .to(torch::kFloat)
+                            .to(x.device());          // [B,C,H,W,VS+1]
+    auto logprobs = decode(z, g_0);                   // [B,C,H,W,VS+1]
+    return (x_onehot * logprobs).mean({1, 2, 3, 4});  // [B,]
 }
 
 void Trainer::train_step(Batch batch, double* model_loss, double* classifier_loss) {
     model->train();
     gamma->train();
     // classifier->train();
-    auto x = batch.images.to(device);
-    auto f = encode(x);
+    auto x = batch.images.to(device);  // [B,C,H,W]
+    auto f = encode(x);                // [B,C,H,W]
     int b = x.size(0);
-    auto t_0 = torch::zeros({1, 1}).to(device);
-    auto g_0 = gamma(t_0);
-    auto t_1 = torch::ones({1, 1}).to(device);
-    auto g_1 = gamma(t_1);
+    auto t_0 = torch::zeros({1, 1}).to(device);  // [1,1]
+    auto g_0 = gamma(t_0);                       // [1,1]
+    auto t_1 = torch::ones({1, 1}).to(device);   // [1,1]
+    auto g_1 = gamma(t_1);                       // [1,1]
+    // std::cout << "g_0: " << g_0 << "\ng_1: " << g_1 << "\n";
 
-    auto var_0 = torch::sigmoid(g_0);
-    auto var_1 = torch::sigmoid(g_1);
+    auto var_0 = torch::sigmoid(g_0);  // [1,1]
+    auto var_1 = torch::sigmoid(g_1);  // [1,1]
 
     // Reconstruction Loss
-    torch::Tensor eps_0 = torch::rand_like(x).to(device);
-    auto z_0 = torch::sqrt(1.0 - var_0) * f + torch::sqrt(var_0) * eps_0;
-    auto z_0_rescaled = f + torch::exp(0.5 * g_0) * eps_0;
-    auto loss_recon = -logprob(x, z_0_rescaled, g_0);
+    torch::Tensor eps_0 = torch::rand_like(x).to(device);                  // [B,C,H,W]
+    auto z_0 = torch::sqrt(1.0 - var_0) * f + torch::sqrt(var_0) * eps_0;  // [B,C,H,W]
+    auto z_0_rescaled = f + torch::exp(0.5 * g_0) * eps_0;                 // [B,C,H,W]
+    auto loss_recon = -logprob(x, z_0_rescaled, g_0);                      // [B,]
+    // std::cout << "loss_recon: " << loss_recon << "\n";
 
     // Latent Loss
-    auto mean1_sq = (1.0 - var_1) * torch::pow(f, 2);
-    auto loss_klz = 0.5 * (mean1_sq + var_1 - torch::log(var_1) - 1.0f).mean({1, 2, 3});
+    auto mean1_sq = (1.0 - var_1) * torch::pow(f, 2);  // [B,C,H,W]
+    auto loss_klz = 0.5 * (mean1_sq + var_1 - torch::log(var_1) - 1.0f).mean({1, 2, 3});  // [B,]
+    // std::cout << "loss_klz: " << loss_klz << "\n";
 
     // Diffusion Loss
 
     // antithetic time sampling
     float t0 = torch::rand(1).item<float>();
-    auto offsets = torch::arange(0.0, 1.0, 1.0 / b).to(device);
-    auto t = torch::fmod(t0 + offsets, 1.0).unsqueeze(-1);
-    t = torch::ceil(t * max_diffusion_time) / max_diffusion_time;
+    auto offsets = torch::arange(0.0, 1.0, 1.0 / b).to(device);    // [B,]
+    auto t = torch::fmod(t0 + offsets, 1.0).unsqueeze(-1);         // [B,1]
+    t = torch::ceil(t * max_diffusion_time) / max_diffusion_time;  // [B,1]
+    // std::cout << "t: " << t << "\n";
 
     // sample z_t
-    auto g_t = gamma(t);
-    auto var_t = torch::sigmoid(g_t).reshape({b, 1, 1, 1});
-    auto eps = torch::rand_like(f);
-    auto z_t = torch::sqrt(1.0f - var_t) * f + torch::sqrt(var_t) * eps;
-    auto eps_hat = model(z_t, g_t.squeeze(-1));
-    auto loss_diff_mse = torch::pow(eps - eps_hat, 2).mean({1, 2, 3});
+    auto g_t = gamma(t);                                                  // [B,1]
+    auto var_t = torch::sigmoid(g_t).reshape({b, 1, 1, 1});               //[B,1,1,1]
+    auto eps = torch::rand_like(f);                                       // [B,C,H,W]
+    auto z_t = torch::sqrt(1.0f - var_t) * f + torch::sqrt(var_t) * eps;  // [B,C,H,W]
+    auto eps_hat = model(z_t, g_t.squeeze(-1));                           // [B,C,H,W]
+    auto loss_diff_mse = torch::pow(eps - eps_hat, 2).mean({1, 2, 3});    // [B,]
+    // std::cout << "loss_diff_mse: " << loss_diff_mse << "\n";
 
-    auto s = t - (1.0 / max_diffusion_time);
-    auto g_s = gamma(s);
-    auto loss_diff = 0.5 * max_diffusion_time * torch::expm1(g_t - g_s) * loss_diff_mse;
-
+    auto s = t - (1.0 / max_diffusion_time);  // [B,1]
+    auto g_s = gamma(s);                      // [B,1]
+    auto loss_diff =
+            0.5 * max_diffusion_time * torch::expm1(g_t - g_s).squeeze(-1) * loss_diff_mse;  // [B,]
+    // auto loss_diff = 0.5 * 1 * (torch::exp(-g_s) - torch::exp(-g_t)).squeeze(-1) *
+    //                  loss_diff_mse;  // [B,]
+    // std::cout << "loss_diff: " << loss_diff << "\n";
     auto loss_tensor = (loss_recon + loss_klz + loss_diff).mean();
-
+    // auto loss_tensor = (loss_diff).mean();
+    // std::cout << "loss_tensor: " << loss_tensor << "\n";
     optimizer->zero_grad();
     gamma_optimizer->zero_grad();
     loss_tensor.backward();

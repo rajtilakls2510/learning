@@ -54,35 +54,38 @@ torch::Tensor decode(torch::Tensor z, torch::Tensor g_0) {
 
 torch::Tensor sample(
         torch::Tensor i, int T, torch::Tensor z_t, unet::NoiseNet gamma, unet::ScoreModel model) {
-    torch::Tensor eps = torch::rand_like(z_t).to(z_t.device());
-    auto t = (T - i) / T;
-    auto s = (T - i - 1) / T;
-    auto g_t = gamma(t);
-    auto g_s = gamma(s);
-    auto eps_hat = model(z_t, g_t.squeeze(-1));
-    auto a = torch::sigmoid(-g_s);
-    auto b = torch::sigmoid(-g_t);
-    auto c = -torch::expm1(g_s - g_t);
-    auto sigma_t = torch::sqrt(torch::sigmoid(g_t));
-//     std::cout << "In sample\n" << std::flush;
-//     std::cout << "g_s: " << net::get_size(g_s) << " g_t: " << net::get_size(g_t)
-//               << " sigma_t: " << net::get_size(sigma_t) << " c: " << net::get_size(c)
-//               << " eps_hat: " << net::get_size(eps_hat) << " a: " << net::get_size(a)
-//               << " eps: " << net::get_size(eps) << "\n"
-//               << std::flush;
-    auto z_s = torch::sqrt(torch::sigmoid(-g_s) / torch::sigmoid(-g_t)) *
-                       (z_t - sigma_t * c * eps_hat) +
-               torch::sqrt((1.0 - a) * c) * eps;
+    // i: [1,1], z_t: [B,C,H,W]
+    torch::Tensor eps = torch::rand_like(z_t).to(z_t.device());  // [B,C,H,W]
+    auto t = (T - i) / T;                                        // [1,1]
+    auto s = (T - i - 1) / T;                                    // [1,1]
+    auto g_t = gamma(t);                                         // [1,1]
+    auto g_s = gamma(s);                                         // [1,1]
+    std::cout << "g_t: " << g_t << "\ng_s: " << g_s << "\n";
+    auto eps_hat = model(z_t, g_t.squeeze(-1));  // [B,C,H,W]
+    auto a = torch::sigmoid(-g_s);               // [1,1]
+    auto b = torch::sigmoid(-g_t);               // [1,1]
+    auto c = -torch::expm1(g_s - g_t);           // [1,1]
+    std::cout << "a: " << a << "\nb: " << b << "\nc: " << c << "\n";
+    auto sigma_t = torch::sqrt(torch::sigmoid(g_t));  // [1,1]
+    //     std::cout << "In sample\n" << std::flush;
+    //     std::cout << "g_s: " << net::get_size(g_s) << " g_t: " << net::get_size(g_t)
+    //               << " sigma_t: " << net::get_size(sigma_t) << " c: " << net::get_size(c)
+    //               << " eps_hat: " << net::get_size(eps_hat) << " a: " << net::get_size(a)
+    //               << " eps: " << net::get_size(eps) << "\n"
+    //               << std::flush;
+    auto z_s = torch::sqrt(a / b) * (z_t - sigma_t * c * eps_hat) +
+               torch::sqrt((1.0 - a) * c) * eps;  // [B,C,H,W]
     return z_s;
 }
 
 torch::Tensor generate_x(torch::Tensor z_0, unet::NoiseNet gamma) {
-    auto t_0 = torch::zeros({1, 1}).to(z_0.device());
-    auto g_0 = gamma(t_0);
-    auto var_0 = torch::sigmoid(g_0);
-    auto z_0_rescaled = z_0 / torch::sqrt(1.0 - var_0);
-    auto logits = decode(z_0_rescaled, g_0);
-    auto samples = torch::argmax(logits, -1);
+    // z: [B,C,H,W]
+    auto t_0 = torch::zeros({1, 1}).to(z_0.device());    // [1,1]
+    auto g_0 = gamma(t_0);                               // [1,1]
+    auto var_0 = torch::sigmoid(g_0);                    // [1,1]
+    auto z_0_rescaled = z_0 / torch::sqrt(1.0 - var_0);  // [B,C,H,W]
+    auto logits = decode(z_0_rescaled, g_0);             // [B,C,H,W,VS+1]
+    auto samples = torch::argmax(logits, -1);            // [B,C,H,W]
     return samples;
 }
 
@@ -104,8 +107,8 @@ int main(int argc, char* argv[]) {
     int max_diffusion_time = 1000;
     auto model = unet::ScoreModel(
             /* in_out_channels */ 1,
-            /* n_res_layers */ 3,
-            /* n_embed */ 128,
+            /* n_res_layers */ 5,
+            /* n_embed */ 192,
             /* gamma_min */ -13.3,
             /* gamma_max */ 5.0,
             max_diffusion_time);
@@ -122,7 +125,7 @@ int main(int argc, char* argv[]) {
 
     int batch_size = 8;  // show 8 samples at once
 
-    torch::Tensor z = torch::randn({batch_size, 1, 28, 28}).to(device);
+    torch::Tensor z = torch::randn({batch_size, 1, 28, 28}).to(device);  // [B,C,H,W]
 
     cv::namedWindow("Diffusion", cv::WINDOW_AUTOSIZE);
 
@@ -139,13 +142,16 @@ int main(int argc, char* argv[]) {
     cv::VideoWriter writer;
     bool isWriterOpen = false;
 
+    torch::NoGradGuard no_grad;
+
     for (int t = 0; t < max_diffusion_time + 1; t++) {
-        torch::Tensor timesteps =
-                torch::full({1, 1}, t, torch::TensorOptions().device(device).dtype(torch::kLong));
+        torch::Tensor timesteps = torch::full(
+                {1, 1}, t, torch::TensorOptions().device(device).dtype(torch::kLong));  // [1,1]
         if (t == max_diffusion_time) {
-            z = generate_x(z, gamma);
+            z = generate_x(z, gamma);  // [B,C,H,W]
         } else {
-            z = sample(timesteps, max_diffusion_time, z, gamma, model);
+            z = sample(timesteps, max_diffusion_time, z, gamma, model);  // [B,C,H,W]
+            std::cout << "z_t: " << z << "\n";
         }
 
         z = z.detach();  // detach grad for next iteration

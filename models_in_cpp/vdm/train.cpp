@@ -11,5 +11,5 @@ int main(int argc, char* argv[]) {
     }
 
     Trainer trainer(argv[1], argv[2], /* max diffusion time */ 1000);
-    trainer.learn(/* epochs */ 100, /* batch_size*/ 64);
+    trainer.learn(/* epochs */ 100, /* batch_size*/ 32);
 }
