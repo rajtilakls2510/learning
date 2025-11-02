@@ -40,6 +40,7 @@ int main(int argc, char* argv[]) {
     Tensor g_t = torch::tensor({-13.0, -11.0, -8.0, -5.0, -2.0, 0.0, 1.0, 3.0});
     Tensor logits = score(inp, g_t);
     std::cout << get_size(logits) << "\n";
+    std::cout << "Num parameters: " << count_parameters(score) << "\n";
 
 
     return 0;

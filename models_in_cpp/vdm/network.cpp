@@ -5,9 +5,9 @@
 
 namespace vdm::unet {
 
-Tensor timestep_embedding(Tensor t, int dim) {
+Tensor timestep_embedding(Tensor t, int dim, int max_diffusion_time) {
     // t : [B,]
-    t *= 1000.0;
+    t *= max_diffusion_time;
     int half_dim = dim / 2;
     torch::Tensor scale = torch::log(torch::tensor((float)10000)) / (half_dim - 1);
     torch::Tensor exponents = torch::exp(torch::arange(half_dim).to(t.device()) * -scale);
@@ -125,8 +125,17 @@ Tensor AttentionBlockImpl::forward(Tensor x) {
 }
 
 ScoreModelImpl::ScoreModelImpl(
-        int in_out_channels, int n_res_layers, int n_embed, double gamma_min, double gamma_max)
-    : n_res_layers(n_res_layers), n_embed(n_embed), gamma_min(gamma_min), gamma_max(gamma_max) {
+        int in_out_channels,
+        int n_res_layers,
+        int n_embed,
+        double gamma_min,
+        double gamma_max,
+        int max_diffusion_time)
+    : n_res_layers(n_res_layers),
+      n_embed(n_embed),
+      gamma_min(gamma_min),
+      gamma_max(gamma_max),
+      max_diffusion_time(max_diffusion_time) {
     dense0 = register_module("dense0", Linear(LinearOptions(n_embed, n_embed * 4)));
     dense1 = register_module("dense1", Linear(LinearOptions(n_embed * 4, n_embed * 4)));
     conv_in = register_module(
@@ -152,7 +161,7 @@ ScoreModelImpl::ScoreModelImpl(
 
 Tensor ScoreModelImpl::forward(Tensor z, Tensor g_t) {
     Tensor t = (g_t - gamma_min) / (gamma_max - gamma_min);
-    Tensor t_emb = timestep_embedding(t, n_embed);
+    Tensor t_emb = timestep_embedding(t, n_embed, max_diffusion_time);
     // TODO: Add conditioning
     Tensor cond = functional::silu(dense0(t_emb));
     cond = functional::silu(dense1(cond));

@@ -14,7 +14,7 @@ using namespace torch::nn;
 using namespace torch::indexing;
 using namespace torch::nn::functional;
 
-Tensor timestep_embedding(Tensor t, int dim);
+Tensor timestep_embedding(Tensor t, int dim, int max_diffusion_time);
 
 class DenseMonotoneImpl : public Module {
 public:
@@ -79,11 +79,16 @@ TORCH_MODULE(AttentionBlock);
 class ScoreModelImpl : public Module {
 public:
     ScoreModelImpl(
-            int in_out_channels, int n_res_layers, int n_embed, double gamma_min, double gamma_max);
+            int in_out_channels,
+            int n_res_layers,
+            int n_embed,
+            double gamma_min,
+            double gamma_max,
+            int max_diffusion_time);
     Tensor forward(Tensor z, Tensor g_t);
 
 private:
-    int n_res_layers, n_embed;
+    int n_res_layers, n_embed, max_diffusion_time;
     double gamma_min, gamma_max;
     Linear dense0{nullptr}, dense1{nullptr};
     Conv2d conv_in{nullptr}, conv_out{nullptr};
