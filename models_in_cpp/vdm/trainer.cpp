@@ -27,14 +27,12 @@ Trainer::Trainer(
     model = unet::ScoreModel(
             /* in_out_channels */ 1,
             /* n_res_layers */ 5,
-            /* n_embed */ 192,
-            /* gamma_min */ -13.3,
-            /* gamma_max */ 5.0,
+            /* n_embed */ 128,
             max_diffusion_time);
     gamma = unet::NoiseNet(
             /* mid_features */ 1024,
-            /* gamma_min */ -13.3,
-            /* gamma_max*/ 5.0);
+            /* gamma_min */ gamma_min,
+            /* gamma_max*/ gamma_max);
     optimizer = std::make_shared<torch::optim::Adam>(
             model->parameters(), torch::optim::AdamOptions(3e-4));
     gamma_optimizer = std::make_shared<torch::optim::Adam>(
@@ -100,22 +98,23 @@ void Trainer::train_step(Batch batch, double* model_loss, double* classifier_los
     auto g_0 = gamma(t_0);                       // [1,1]
     auto t_1 = torch::ones({1, 1}).to(device);   // [1,1]
     auto g_1 = gamma(t_1);                       // [1,1]
-    // std::cout << "g_0: " << g_0 << "\ng_1: " << g_1 << "\n";
 
     auto var_0 = torch::sigmoid(g_0);  // [1,1]
     auto var_1 = torch::sigmoid(g_1);  // [1,1]
 
     // Reconstruction Loss
-    torch::Tensor eps_0 = torch::rand_like(x).to(device);                  // [B,C,H,W]
+    torch::Tensor eps_0;
+    {
+        torch::NoGradGuard no_grad;
+        eps_0 = torch::randn_like(x).to(device);  // [B,C,H,W]
+    }
     auto z_0 = torch::sqrt(1.0 - var_0) * f + torch::sqrt(var_0) * eps_0;  // [B,C,H,W]
     auto z_0_rescaled = f + torch::exp(0.5 * g_0) * eps_0;                 // [B,C,H,W]
     auto loss_recon = -logprob(x, z_0_rescaled, g_0);                      // [B,]
-    // std::cout << "loss_recon: " << loss_recon << "\n";
 
     // Latent Loss
     auto mean1_sq = (1.0 - var_1) * torch::pow(f, 2);  // [B,C,H,W]
     auto loss_klz = 0.5 * (mean1_sq + var_1 - torch::log(var_1) - 1.0f).mean({1, 2, 3});  // [B,]
-    // std::cout << "loss_klz: " << loss_klz << "\n";
 
     // Diffusion Loss
 
@@ -124,32 +123,54 @@ void Trainer::train_step(Batch batch, double* model_loss, double* classifier_los
     auto offsets = torch::arange(0.0, 1.0, 1.0 / b).to(device);    // [B,]
     auto t = torch::fmod(t0 + offsets, 1.0).unsqueeze(-1);         // [B,1]
     t = torch::ceil(t * max_diffusion_time) / max_diffusion_time;  // [B,1]
-    // std::cout << "t: " << t << "\n";
 
     // sample z_t
-    auto g_t = gamma(t);                                                  // [B,1]
-    auto var_t = torch::sigmoid(g_t).reshape({b, 1, 1, 1});               //[B,1,1,1]
-    auto eps = torch::rand_like(f);                                       // [B,C,H,W]
-    auto z_t = torch::sqrt(1.0f - var_t) * f + torch::sqrt(var_t) * eps;  // [B,C,H,W]
-    auto eps_hat = model(z_t, g_t.squeeze(-1));                           // [B,C,H,W]
-    auto loss_diff_mse = torch::pow(eps - eps_hat, 2).mean({1, 2, 3});    // [B,]
-    // std::cout << "loss_diff_mse: " << loss_diff_mse << "\n";
+    auto g_t = gamma(t);                                     // [B,1]
+    auto var_t = torch::sigmoid(g_t).reshape({b, 1, 1, 1});  // [B,1,1,1]
+    torch::Tensor eps;
+    {
+        torch::NoGradGuard no_grad;
+        eps = torch::randn_like(f);  // [B,C,H,W]
+    }
+    auto z_t = torch::sqrt(1.0 - var_t) * f + torch::sqrt(var_t) * eps;            // [B,C,H,W]
+    auto eps_hat = model(z_t, g_t.squeeze(-1), g_0.squeeze(-1), g_1.squeeze(-1));  // [B,C,H,W]
+    auto loss_diff_mse = torch::pow(eps - eps_hat, 2).mean({1, 2, 3});             // [B,]
 
     auto s = t - (1.0 / max_diffusion_time);  // [B,1]
     auto g_s = gamma(s);                      // [B,1]
     auto loss_diff =
             0.5 * max_diffusion_time * torch::expm1(g_t - g_s).squeeze(-1) * loss_diff_mse;  // [B,]
-    // auto loss_diff = 0.5 * 1 * (torch::exp(-g_s) - torch::exp(-g_t)).squeeze(-1) *
-    //                  loss_diff_mse;  // [B,]
-    // std::cout << "loss_diff: " << loss_diff << "\n";
     auto loss_tensor = (loss_recon + loss_klz + loss_diff).mean();
-    // auto loss_tensor = (loss_diff).mean();
-    // std::cout << "loss_tensor: " << loss_tensor << "\n";
+
     optimizer->zero_grad();
     gamma_optimizer->zero_grad();
     loss_tensor.backward();
+
+    // After backward(), before step():
+    for (auto& p : gamma->parameters()) {
+        if (p.grad().defined() && torch::isnan(p.grad()).any().item<bool>()) {
+            std::cout << "NaN in gamma grad!\n";
+            break;
+        }
+    }
+    for (auto& p : model->parameters()) {
+        if (p.grad().defined() && torch::isnan(p.grad()).any().item<bool>()) {
+            std::cout << "NaN in model grad!\n";
+            break;
+        }
+    }
+
     optimizer->step();
     gamma_optimizer->step();
+
+    // After optimizer step():
+    for (auto& p : gamma->parameters()) {
+        if (torch::isnan(p).any().item<bool>()) {
+            std::cout << "NaN in gamma param after step!\n";
+            std::exit(EXIT_FAILURE);
+            break;
+        }
+    }
 
     *model_loss = loss_tensor.item<float>();
     *classifier_loss = 0.0;
@@ -161,47 +182,47 @@ void Trainer::test_step(Batch batch, double* model_loss, double* classifier_loss
     // classifier->eval();
 
     torch::NoGradGuard no_grad;
-    auto x = batch.images.to(device);
-    auto f = encode(x);
+    auto x = batch.images.to(device);  // [B,C,H,W]
+    auto f = encode(x);                // [B,C,H,W]
     int b = x.size(0);
-    auto t_0 = torch::zeros({1, 1}).to(device);
-    auto g_0 = gamma(t_0);
-    auto t_1 = torch::ones({1, 1}).to(device);
-    auto g_1 = gamma(t_1);
+    auto t_0 = torch::zeros({1, 1}).to(device);  // [1,1]
+    auto g_0 = gamma(t_0);                       // [1,1]
+    auto t_1 = torch::ones({1, 1}).to(device);   // [1,1]
+    auto g_1 = gamma(t_1);                       // [1,1]
 
-    auto var_0 = torch::sigmoid(g_0);
-    auto var_1 = torch::sigmoid(g_1);
+    auto var_0 = torch::sigmoid(g_0);  // [1,1]
+    auto var_1 = torch::sigmoid(g_1);  // [1,1]
 
     // Reconstruction Loss
-    torch::Tensor eps_0 = torch::rand_like(x).to(device);
-    auto z_0 = torch::sqrt(1.0 - var_0) * f + torch::sqrt(var_0) * eps_0;
-    auto z_0_rescaled = f + torch::exp(0.5 * g_0) * eps_0;
-    auto loss_recon = -logprob(x, z_0_rescaled, g_0);
+    torch::Tensor eps_0 = torch::randn_like(x).to(device);                 // [B,C,H,W]
+    auto z_0 = torch::sqrt(1.0 - var_0) * f + torch::sqrt(var_0) * eps_0;  // [B,C,H,W]
+    auto z_0_rescaled = f + torch::exp(0.5 * g_0) * eps_0;                 // [B,C,H,W]
+    auto loss_recon = -logprob(x, z_0_rescaled, g_0);                      // [B,]
 
     // Latent Loss
-    auto mean1_sq = (1.0 - var_1) * torch::pow(f, 2);
-    auto loss_klz = 0.5 * (mean1_sq + var_1 - torch::log(var_1) - 1.0f).mean({1, 2, 3});
+    auto mean1_sq = (1.0 - var_1) * torch::pow(f, 2);  // [B,C,H,W]
+    auto loss_klz = 0.5 * (mean1_sq + var_1 - torch::log(var_1) - 1.0f).mean({1, 2, 3});  // [B,]
 
     // Diffusion Loss
 
     // antithetic time sampling
     float t0 = torch::rand(1).item<float>();
-    auto offsets = torch::arange(0.0, 1.0, 1.0 / b).to(device);
-    auto t = torch::fmod(t0 + offsets, 1.0).unsqueeze(-1);
-    t = torch::ceil(t * max_diffusion_time) / max_diffusion_time;
+    auto offsets = torch::arange(0.0, 1.0, 1.0 / b).to(device);    // [B,]
+    auto t = torch::fmod(t0 + offsets, 1.0).unsqueeze(-1);         // [B,1]
+    t = torch::ceil(t * max_diffusion_time) / max_diffusion_time;  // [B,1]
 
     // sample z_t
-    auto g_t = gamma(t);
-    auto var_t = torch::sigmoid(g_t).reshape({b, 1, 1, 1});
-    auto eps = torch::rand_like(f);
-    auto z_t = torch::sqrt(1.0f - var_t) * f + torch::sqrt(var_t) * eps;
-    auto eps_hat = model(z_t, g_t.squeeze(-1));
-    auto loss_diff_mse = torch::pow(eps - eps_hat, 2).mean({1, 2, 3});
+    auto g_t = gamma(t);                                                           // [B,1]
+    auto var_t = torch::sigmoid(g_t).reshape({b, 1, 1, 1});                        // [B,1,1,1]
+    torch::Tensor eps = torch::randn_like(f);                                      // [B,C,H,W]
+    auto z_t = torch::sqrt(1.0 - var_t) * f + torch::sqrt(var_t) * eps;            // [B,C,H,W]
+    auto eps_hat = model(z_t, g_t.squeeze(-1), g_0.squeeze(-1), g_1.squeeze(-1));  // [B,C,H,W]
+    auto loss_diff_mse = torch::pow(eps - eps_hat, 2).mean({1, 2, 3});             // [B,]
 
-    auto s = t - (1.0 / max_diffusion_time);
-    auto g_s = gamma(s);
-    auto loss_diff = 0.5 * max_diffusion_time * torch::expm1(g_t - g_s) * loss_diff_mse;
-
+    auto s = t - (1.0 / max_diffusion_time);  // [B,1]
+    auto g_s = gamma(s);                      // [B,1]
+    auto loss_diff =
+            0.5 * max_diffusion_time * torch::expm1(g_t - g_s).squeeze(-1) * loss_diff_mse;  // [B,]
     auto loss_tensor = (loss_recon + loss_klz + loss_diff).mean();
 
     *model_loss = loss_tensor.item<float>();

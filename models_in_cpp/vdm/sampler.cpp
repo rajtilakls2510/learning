@@ -55,24 +55,20 @@ torch::Tensor decode(torch::Tensor z, torch::Tensor g_0) {
 torch::Tensor sample(
         torch::Tensor i, int T, torch::Tensor z_t, unet::NoiseNet gamma, unet::ScoreModel model) {
     // i: [1,1], z_t: [B,C,H,W]
-    torch::Tensor eps = torch::rand_like(z_t).to(z_t.device());  // [B,C,H,W]
-    auto t = (T - i) / T;                                        // [1,1]
-    auto s = (T - i - 1) / T;                                    // [1,1]
-    auto g_t = gamma(t);                                         // [1,1]
-    auto g_s = gamma(s);                                         // [1,1]
-    std::cout << "g_t: " << g_t << "\ng_s: " << g_s << "\n";
-    auto eps_hat = model(z_t, g_t.squeeze(-1));  // [B,C,H,W]
-    auto a = torch::sigmoid(-g_s);               // [1,1]
-    auto b = torch::sigmoid(-g_t);               // [1,1]
-    auto c = -torch::expm1(g_s - g_t);           // [1,1]
-    std::cout << "a: " << a << "\nb: " << b << "\nc: " << c << "\n";
-    auto sigma_t = torch::sqrt(torch::sigmoid(g_t));  // [1,1]
-    //     std::cout << "In sample\n" << std::flush;
-    //     std::cout << "g_s: " << net::get_size(g_s) << " g_t: " << net::get_size(g_t)
-    //               << " sigma_t: " << net::get_size(sigma_t) << " c: " << net::get_size(c)
-    //               << " eps_hat: " << net::get_size(eps_hat) << " a: " << net::get_size(a)
-    //               << " eps: " << net::get_size(eps) << "\n"
-    //               << std::flush;
+    torch::Tensor eps = torch::randn_like(z_t).to(z_t.device());                   // [B,C,H,W]
+    auto t = (T - i) / T;                                                          // [1,1]
+    auto s = (T - i - 1) / T;                                                      // [1,1]
+    auto t_0 = torch::zeros({1, 1}).to(z_t.device());                              // [1,1]
+    auto g_0 = gamma(t_0);                                                         // [1,1]
+    auto t_1 = torch::ones({1, 1}).to(z_t.device());                               // [1,1]
+    auto g_1 = gamma(t_1);                                                         // [1,1]
+    auto g_t = gamma(t);                                                           // [1,1]
+    auto g_s = gamma(s);                                                           // [1,1]
+    auto eps_hat = model(z_t, g_t.squeeze(-1), g_0.squeeze(-1), g_1.squeeze(-1));  // [B,C,H,W]
+    auto a = torch::sigmoid(-g_s);                                                 // [1,1]
+    auto b = torch::sigmoid(-g_t);                                                 // [1,1]
+    auto c = -torch::expm1(g_s - g_t);                                             // [1,1]
+    auto sigma_t = torch::sqrt(torch::sigmoid(g_t));                               // [1,1]
     auto z_s = torch::sqrt(a / b) * (z_t - sigma_t * c * eps_hat) +
                torch::sqrt((1.0 - a) * c) * eps;  // [B,C,H,W]
     return z_s;
@@ -108,9 +104,7 @@ int main(int argc, char* argv[]) {
     auto model = unet::ScoreModel(
             /* in_out_channels */ 1,
             /* n_res_layers */ 5,
-            /* n_embed */ 192,
-            /* gamma_min */ -13.3,
-            /* gamma_max */ 5.0,
+            /* n_embed */ 128,
             max_diffusion_time);
     auto gamma = unet::NoiseNet(
             /* mid_features */ 1024,
@@ -151,9 +145,8 @@ int main(int argc, char* argv[]) {
             z = generate_x(z, gamma);  // [B,C,H,W]
         } else {
             z = sample(timesteps, max_diffusion_time, z, gamma, model);  // [B,C,H,W]
-            std::cout << "z_t: " << z << "\n";
         }
-
+        std::cout << "t: " << t << " z: " << z << "\n";
         z = z.detach();  // detach grad for next iteration
 
         // Clamp and scale to [0,1]

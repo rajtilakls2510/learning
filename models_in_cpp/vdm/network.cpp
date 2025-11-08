@@ -23,7 +23,7 @@ DenseMonotoneImpl::DenseMonotoneImpl(int in_features, int out_features, bool use
 }
 
 Tensor DenseMonotoneImpl::forward(Tensor x) {
-    Tensor y = matmul(x, torch::abs(weight));
+    Tensor y = matmul(x, torch::softplus(weight));
     if (use_bias) y = y + bias;
     return y;
 }
@@ -45,7 +45,8 @@ Tensor NoiseNetImpl::forward(Tensor x) {
     _h = l2(_h);
     _h = 2 * (sigmoid(_h) - 0.5);
     _h = l3(_h) / mid_features;
-    return h + _h;
+    Tensor y = gamma_min + 0.5 * (torch::tanh(h + _h) + 1.0) * (gamma_max - gamma_min);
+    return y;
 }
 
 ResnetBlockImpl::ResnetBlockImpl(int in_channels, int out_channels, int cond_dim)
@@ -125,17 +126,8 @@ Tensor AttentionBlockImpl::forward(Tensor x) {
 }
 
 ScoreModelImpl::ScoreModelImpl(
-        int in_out_channels,
-        int n_res_layers,
-        int n_embed,
-        double gamma_min,
-        double gamma_max,
-        int max_diffusion_time)
-    : n_res_layers(n_res_layers),
-      n_embed(n_embed),
-      gamma_min(gamma_min),
-      gamma_max(gamma_max),
-      max_diffusion_time(max_diffusion_time) {
+        int in_out_channels, int n_res_layers, int n_embed, int max_diffusion_time)
+    : n_res_layers(n_res_layers), n_embed(n_embed), max_diffusion_time(max_diffusion_time) {
     dense0 = register_module("dense0", Linear(LinearOptions(n_embed, n_embed * 4)));
     dense1 = register_module("dense1", Linear(LinearOptions(n_embed * 4, n_embed * 4)));
     conv_in = register_module(
@@ -159,7 +151,7 @@ ScoreModelImpl::ScoreModelImpl(
     norm = register_module("norm", GroupNorm(GroupNormOptions(32, n_embed)));
 }
 
-Tensor ScoreModelImpl::forward(Tensor z, Tensor g_t) {
+Tensor ScoreModelImpl::forward(Tensor z, Tensor g_t, Tensor gamma_min, Tensor gamma_max) {
     Tensor t = (g_t - gamma_min) / (gamma_max - gamma_min);
     Tensor t_emb = timestep_embedding(t, n_embed, max_diffusion_time);
     // TODO: Add conditioning

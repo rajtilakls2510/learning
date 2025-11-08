@@ -33,7 +33,7 @@ public:
     NoiseNetImpl(int mid_features = 1024, double gamma_min = 0.0, double gamma_max = 10.0);
     Tensor forward(Tensor x);
 
-private:
+public:
     int mid_features;
     double gamma_min, gamma_max;
     DenseMonotone l1{nullptr}, l2{nullptr}, l3{nullptr};
@@ -78,18 +78,12 @@ TORCH_MODULE(AttentionBlock);
 
 class ScoreModelImpl : public Module {
 public:
-    ScoreModelImpl(
-            int in_out_channels,
-            int n_res_layers,
-            int n_embed,
-            double gamma_min,
-            double gamma_max,
-            int max_diffusion_time);
-    Tensor forward(Tensor z, Tensor g_t);
+    ScoreModelImpl(int in_out_channels, int n_res_layers, int n_embed, int max_diffusion_time);
+    Tensor forward(Tensor z, Tensor g_t, Tensor gamma_min, Tensor gamma_max);
 
 private:
     int n_res_layers, n_embed, max_diffusion_time;
-    double gamma_min, gamma_max;
+
     Linear dense0{nullptr}, dense1{nullptr};
     Conv2d conv_in{nullptr}, conv_out{nullptr};
     std::vector<ResnetBlock> down_blocks;

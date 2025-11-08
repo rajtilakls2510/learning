@@ -42,6 +42,5 @@ int main(int argc, char* argv[]) {
     std::cout << get_size(logits) << "\n";
     std::cout << "Num parameters: " << count_parameters(score) << "\n";
 
-
     return 0;
 }

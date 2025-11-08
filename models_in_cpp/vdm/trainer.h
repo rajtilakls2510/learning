@@ -25,6 +25,7 @@ public:
     void learn(int epochs, int batch_size);
 
 private:
+    double gamma_min{-13.3}, gamma_max{5.0};
     int vocab_size{255};
     torch::Device device{torch::kCPU};
     std::string data_path, checkpoint_path;
