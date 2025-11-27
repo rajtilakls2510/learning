@@ -26,8 +26,8 @@ Trainer::Trainer(
 
     model = unet::ScoreModel(
             /* in_out_channels */ 1,
-            /* n_res_layers */ 5,
-            /* n_embed */ 128,
+            /* n_res_layers */ 3,
+            /* n_embed */ 256,
             max_diffusion_time);
     gamma = unet::NoiseNet(
             /* mid_features */ 1024,

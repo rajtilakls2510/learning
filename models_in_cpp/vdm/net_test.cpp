@@ -35,10 +35,10 @@ int main(int argc, char* argv[]) {
     // std::cout << get_size(logits) << "\n";
 
     // ScoreModel test
-    auto score = ScoreModel(1, 6, 128, -13.3, 5.0);
+    auto score = ScoreModel(1, 3, 256, 1000);
     Tensor inp = torch::zeros({8, 1, 28, 28});
     Tensor g_t = torch::tensor({-13.0, -11.0, -8.0, -5.0, -2.0, 0.0, 1.0, 3.0});
-    Tensor logits = score(inp, g_t);
+    Tensor logits = score(inp, g_t, g_t, g_t);
     std::cout << get_size(logits) << "\n";
     std::cout << "Num parameters: " << count_parameters(score) << "\n";
 
