@@ -62,22 +62,17 @@ Eigen::Matrix2d pendulum_backward_euler_jacobian(const Eigen::Vector2d& xn, cons
 
 }
 
+// Might be unstable (must be used with line search or other solvers)
 double backward_euler_step_newton(const Eigen::Vector2d& x0, const double h, Eigen::Vector2d& xn) {
     xn = x0;
     double e = (x0 + h * pendulum_dynamics(xn) - xn).norm();
     Eigen::Vector2d r = x0 + h * pendulum_dynamics(xn) - xn;
-    // std::cout << "r: " << r << "\n";
     while (e > 1e-8) {
         Eigen::Matrix2d J = pendulum_backward_euler_jacobian(xn, h);
-        // std::cout << "J: " << J  << "\n";
         Eigen::Vector2d dx = J.ldlt().solve(r);
-        // std::cout << "dx: " << dx << "\n";
         xn -= dx;
-        // std::cout << "xn: " << xn << "\n";
         r = x0 + h * pendulum_dynamics(xn) - xn;
-        // std::cout << "r: " << r << "\n";
         e = r.norm();
-        // std::cout << "e: " << e << "\n";
 
     }
     return e;
