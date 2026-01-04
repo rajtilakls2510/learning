@@ -57,6 +57,24 @@ public:
     void get(F* data_, F* grads_);
 
     /**
+     * @brief Set all parameter values to zero.
+     *
+     * This clears the internal `data` array by setting each parameter value
+     * to 0.0. The size of the array is unchanged. Useful for reinitializing
+     * parameters without reallocating memory.
+     */
+    void clearData();
+
+    /**
+     * @brief Set all gradient values to zero.
+     *
+     * This clears the internal `grads` array by setting each gradient value
+     * to 0.0. Typically used at the start of an optimization step before
+     * accumulating new gradients.
+     */
+    void clearGrads();
+
+    /**
      * @brief Destructor.
      *
      * Frees the allocated parameter and gradient arrays.

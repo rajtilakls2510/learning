@@ -1,23 +1,10 @@
 #ifndef ADAM_CU
 #define ADAM_CU
 
-#include <cuda_runtime.h>
-#include <stdio.h>
-
 #include "adam.h"
+#include "common.hpp"
 
 namespace ransac {
-
-#define CUDA_CHECK(ans)                       \
-    {                                         \
-        gpuAssert((ans), __FILE__, __LINE__); \
-    }
-inline void gpuAssert(cudaError_t code, const char* file, int line, bool abort = true) {
-    if (code != cudaSuccess) {
-        fprintf(stderr, "CUDAassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-        if (abort) exit(code);
-    }
-}
 
 __global__ void adam_update_kernel(
         F* params,
@@ -32,7 +19,7 @@ __global__ void adam_update_kernel(
         F eps,
         int t,
         int size) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < size) {
         m[i] = beta1 * m[i] + (1.0 - beta1) * grads[i];
         v[i] = beta2 * v[i] + (1.0 - beta2) * grads[i] * grads[i];
@@ -89,8 +76,8 @@ Params::Params(size_t size) : size(size) {
     CUDA_CHECK(cudaMalloc(&data, size * sizeof(F)));
     CUDA_CHECK(cudaMalloc(&grads, size * sizeof(F)));
 
-    CUDA_CHECK(cudaMemset(data, 0, size * sizeof(F)));
-    CUDA_CHECK(cudaMemset(grads, 0, size * sizeof(F)));
+    clearData();
+    clearGrads();
 }
 
 void Params::set(F* data_, F* grads_) {
@@ -102,6 +89,10 @@ void Params::get(F* data_, F* grads_) {
     if (data_) CUDA_CHECK(cudaMemcpy(data_, data, size * sizeof(F), cudaMemcpyDeviceToHost));
     if (grads_) CUDA_CHECK(cudaMemcpy(grads_, grads, size * sizeof(F), cudaMemcpyDeviceToHost));
 }
+
+void Params::clearData() { CUDA_CHECK(cudaMemset(data, 0, size * sizeof(F))); }
+
+void Params::clearGrads() { CUDA_CHECK(cudaMemset(grads, 0, size * sizeof(F))); }
 
 Params::~Params() {
     CUDA_CHECK(cudaFree(data));

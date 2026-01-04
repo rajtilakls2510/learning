@@ -50,8 +50,8 @@ Adam::~Adam() {
 Params::Params(size_t size) : size(size) {
     data = new F[size];
     grads = new F[size];
-    memset(data, 0, size * sizeof(F));
-    memset(grads, 0, size * sizeof(F));
+    clearData();
+    clearGrads();
 }
 
 void Params::set(F* data_, F* grads_) {
@@ -63,6 +63,9 @@ void Params::get(F* data_, F* grads_) {
     if (data_) std::memcpy(data_, data, size * sizeof(F));
     if (grads_) std::memcpy(grads_, grads, size * sizeof(F));
 }
+
+void Params::clearData() { memset(data, 0, size * sizeof(F)); }
+void Params::clearGrads() { memset(grads, 0, size * sizeof(F)); }
 
 Params::~Params() {
     delete[] data;
