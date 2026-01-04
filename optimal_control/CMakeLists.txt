@@ -38,3 +38,24 @@ add_executable(nd_backtracking_damped_newton
 target_link_libraries(nd_backtracking_damped_newton
     Eigen3::Eigen
 )
+
+add_executable(equality_constraints
+    src/minimization/equality_constraints.cpp
+)
+target_link_libraries(equality_constraints
+    Eigen3::Eigen
+)
+
+add_executable(inequality_constraints
+    src/minimization/inequality_constraints.cpp
+)
+target_link_libraries(inequality_constraints
+    Eigen3::Eigen
+)
+
+add_executable(merit_functions
+    src/minimization/merit_functions.cpp
+)
+target_link_libraries(merit_functions
+    Eigen3::Eigen
+)
