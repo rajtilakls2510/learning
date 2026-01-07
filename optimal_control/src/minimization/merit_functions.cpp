@@ -7,7 +7,7 @@
 using namespace std;
 using namespace std::chrono;
 
-// Solve min_x 0.5 * (x - [1; 0])' @ Q @ (x - [1; 0]) s.t. x[0]^2 + 2 * x[0] - x[1] using:
+// Solve min_x 0.5 * (x - [1; 0])' @ Q @ (x - [1; 0]) s.t. x[0]^2 + 2 * x[0] - x[1] = 0 using:
 //  - Gauss-Newton + Line search using merit functions
 
 double f(const Eigen::Vector2d& x, const Eigen::Matrix2d& Q) {

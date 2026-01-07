@@ -59,3 +59,10 @@ add_executable(merit_functions
 target_link_libraries(merit_functions
     Eigen3::Eigen
 )
+
+add_executable(al_gn_solver
+    src/minimization/al_gn_solver.cpp
+)
+target_link_libraries(al_gn_solver
+    Eigen3::Eigen
+)
