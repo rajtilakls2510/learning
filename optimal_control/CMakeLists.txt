@@ -66,3 +66,10 @@ add_executable(al_gn_solver
 target_link_libraries(al_gn_solver
     Eigen3::Eigen
 )
+
+add_executable(al_gn_solver_complex
+    src/minimization/al_gn_solver_complex.cpp
+)
+target_link_libraries(al_gn_solver_complex
+    Eigen3::Eigen
+)
