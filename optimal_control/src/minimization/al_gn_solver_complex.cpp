@@ -9,10 +9,10 @@ using namespace std::chrono;
 
 /**
  * Solve min_x 0.1*(1 - x_1)^2 + 0.001*(x_2 - x_1^2)^2 + 0.1*sin(3x_1)*sin(3x_2)
- *      such that   sin(x_1) + x_2^2 - 1.0 = 0
+ *      such that   sin(1.75*x_1) + x_2^2 - 1.0 = 0
  *                  x_1*x_2 - 0.25 = 0
  *                  x_1^2 + x_2^2 - 2 <= 0
- *                  -x_2 + 0.1 <= 0
+ *                  x_2 - 0.1 <= 0
  * 
  * Use an Augmented Lagrangian Method with Gauss-Newton to solve inner optimization problem
  */
@@ -40,14 +40,14 @@ Eigen::MatrixXd d2fdx2(const Eigen::VectorXd& x) {
 // Equality constraints
 Eigen::VectorXd h(const Eigen::VectorXd& x) {
     Eigen::VectorXd h_(2);
-    h_ << sin(x(0)) + pow(x(1), 2) - 1.0, x(0) * x(1) - 0.25;
+    h_ << sin(1.75*x(0)) + pow(x(1), 2) - 1.0, x(0) * x(1) - 0.25;
     return h_;
 }
 
 // Jacobian of equality
 Eigen::MatrixXd dhdx(const Eigen::VectorXd& x) {
     Eigen::MatrixXd j(2,2);
-    j << cos(x(0)), 2*x(1),
+    j << 1.75*cos(1.75*x(0)), 2*x(1),
          x(1), x(0);
     return j;
 }
@@ -55,7 +55,7 @@ Eigen::MatrixXd dhdx(const Eigen::VectorXd& x) {
 // Inequality constraints
 Eigen::VectorXd g(const Eigen::VectorXd& x) {
     Eigen::VectorXd g_(2);
-    g_ << pow(x(0), 2) + pow(x(1), 2) - 2, 0.1 - x(1);
+    g_ << pow(x(0), 2) + pow(x(1), 2) - 2, -0.1 + x(1);
     return g_;
 }
 
@@ -63,7 +63,7 @@ Eigen::VectorXd g(const Eigen::VectorXd& x) {
 Eigen::MatrixXd dgdx(const Eigen::VectorXd& x) {
     Eigen::MatrixXd j(2,2);
     j << 2*x(0), 2*x(1),
-        0, -1;
+        0, 1;
     return j;
 }
 
@@ -195,8 +195,8 @@ int main(int argc, char* argv[]) {
     // -----------------------------
     // 1. Sample cost & constraints
     // -----------------------------
-    double xmin = -5.0, xmax = 5.0;
-    double ymin = -5.0, ymax = 5.0;
+    double xmin = -2.5, xmax = 2.5;
+    double ymin = -2.5, ymax = 2.5;
     int N = 100;
 
     std::ofstream cost_file("cost.csv");
@@ -232,7 +232,7 @@ int main(int argc, char* argv[]) {
     // 2. Augmented Lagrangian steps
     // -----------------------------
     Vec x(2);
-    x << 2, -1.5;
+    x << -2.0, -2.0;
 
     Vec n(2);      // equality multipliers
     Vec lamda(2);  // inequality multipliers
@@ -243,14 +243,14 @@ int main(int argc, char* argv[]) {
 
     std::ofstream al_file("al_steps.csv");
 
-    int outer_iters = 15;
+    int outer_iters = 100;
     auto start_total = high_resolution_clock::now();
     for (int k = 0; k < outer_iters; ++k) {
         auto start_t = high_resolution_clock::now();
         al_file << x(0) << "," << x(1) << "\n" << std::flush;
         std::cout << "k: " << k << " / " << outer_iters; 
         al_step(x, n, lamda, rho);
-        rho *= 10.0;
+        // rho *= 1.1;
         auto end_t = high_resolution_clock::now();
         std::cout << " Time: " << duration_cast<microseconds>(end_t - start_t).count() << " us\n";
     }
