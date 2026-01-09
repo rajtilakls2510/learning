@@ -150,7 +150,7 @@ Eigen::VectorXd solve_al_subproblem(const Eigen::VectorXd& x_0, const Eigen::Vec
         // Backtracking line search using merit function
         double alpha = 1.0;
         
-        while (al(x + alpha * dx, n, lamda, rho) > al(x, n, lamda, rho) + 0.01 * alpha * g.transpose() * dx ){//&& alpha > 1e-2) {
+        while (al(x + alpha * dx, n, lamda, rho) > al(x, n, lamda, rho) + 0.0001 * alpha * g.transpose() * dx ){//&& alpha > 1e-2) {
             // std::cout << "al dx: " << al(x + alpha * dx, n, lamda, rho) << "\n";
             // std::cout << "al : " << al(x, n, lamda, rho) + 0.01 * alpha * g.transpose() * dx  << "\n";
             alpha *= 0.5;
@@ -186,6 +186,28 @@ void al_step(Eigen::VectorXd& x, Eigen::VectorXd& n, Eigen::VectorXd& lamda, con
     lamda = C;
     // std::cout << "lamda: " << lamda << "\n";
 
+}
+
+bool within_constraints(const Eigen::VectorXd& x) {
+
+    // Check Equality constraints
+    Eigen::VectorXd hx = h(x);
+    for (int i=0; i<2; i++) { 
+        if (abs(hx(i)) > 1e-6)
+            return false;
+    }
+
+    // Check Inequality constraints
+    Eigen::VectorXd gx = g(x);
+    for (int i=0; i<2; i++) {
+        if (gx(i) > 0)
+            return false;
+    }
+    return true;
+}
+
+bool is_converged(const Eigen::VectorXd& x, const Eigen::VectorXd& prev_x) {
+    return abs(f(prev_x) - f(x)) <= 1e-6;
 }
 
 int main(int argc, char* argv[]) {
@@ -232,7 +254,9 @@ int main(int argc, char* argv[]) {
     // 2. Augmented Lagrangian steps
     // -----------------------------
     Vec x(2);
-    x << -2.0, -2.0;
+    x << -2.0, -1.0;
+    Vec prev_x(2);
+    prev_x << INFINITY, INFINITY;
 
     Vec n(2);      // equality multipliers
     Vec lamda(2);  // inequality multipliers
@@ -243,16 +267,23 @@ int main(int argc, char* argv[]) {
 
     std::ofstream al_file("al_steps.csv");
 
-    int outer_iters = 100;
+    int outer_iters = 1000;
     auto start_total = high_resolution_clock::now();
-    for (int k = 0; k < outer_iters; ++k) {
+    // for (int k = 0; k < outer_iters && (!is_converged(x, prev_x) || !within_constraints(x)); ++k) {
+    int k = 0;
+    while (!is_converged(x, prev_x) || !within_constraints(x)) {
+        prev_x = x;
         auto start_t = high_resolution_clock::now();
         al_file << x(0) << "," << x(1) << "\n" << std::flush;
-        std::cout << "k: " << k << " / " << outer_iters; 
+        std::cout << "k: " << k << " / " << outer_iters << "\n"; 
         al_step(x, n, lamda, rho);
-        // rho *= 1.1;
+        if (is_converged(x, prev_x) && !within_constraints(x)) {
+            rho = min(rho*1.5, 1e2);
+            std::cout << "Incrementing rho to: " << rho << "\n";
+        }
         auto end_t = high_resolution_clock::now();
         std::cout << " Time: " << duration_cast<microseconds>(end_t - start_t).count() << " us\n";
+        k++;
     }
     auto end_total = high_resolution_clock::now();
     std::cout << "Total time: " << duration_cast<milliseconds>(end_total - start_total).count() << " ms\n";

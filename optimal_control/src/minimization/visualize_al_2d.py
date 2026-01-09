@@ -24,7 +24,7 @@ mpl.rcParams.update({
 cost  = np.loadtxt("build/cost.csv", delimiter=",")
 eq    = np.loadtxt("build/equalities.csv", delimiter=",")
 ineq  = np.loadtxt("build/inequalities.csv", delimiter=",")
-steps = np.loadtxt("build/al_steps.csv", delimiter=",")[:50]
+steps = np.loadtxt("build/al_steps.csv", delimiter=",")#[:50]
 
 # ------------------------------------------------------------
 # Grid reconstruction
@@ -113,7 +113,7 @@ ax.text(
 points = []
 lines  = []
 
-pause_seconds = 1        # how long to wait
+pause_seconds = 0        # how long to wait
 fps = 4                  # animation FPS
 pause_frames = int(pause_seconds * fps)  # number of frames to wait
 
@@ -151,23 +151,23 @@ anim = FuncAnimation(
     fig,
     update,
     frames=pause_frames + len(steps),
-    interval=600,
+    interval=10,
     repeat=False
 )
 
 
 ax.set_aspect("equal", adjustable="box")
 plt.tight_layout()
-# plt.show()
-
-from matplotlib.animation import FFMpegWriter
-
-writer = FFMpegWriter(
-    fps=4,
-    metadata=dict(artist="Rajtilak Pal"),
-    bitrate=1800
-)
-
-anim.save("augmented_lagrangian_2d.mp4", writer=writer)
-
 plt.show()
+
+# from matplotlib.animation import FFMpegWriter
+
+# writer = FFMpegWriter(
+#     fps=4,
+#     metadata=dict(artist="Rajtilak Pal"),
+#     bitrate=1800
+# )
+
+# anim.save("augmented_lagrangian_2d.mp4", writer=writer)
+
+# plt.show()
