@@ -91,3 +91,10 @@ add_executable(simulate_ip
 target_link_libraries(simulate_ip
     Eigen3::Eigen sfml-graphics sfml-window sfml-system
 )
+
+add_executable(ip_solver 
+    src/mpc/ip_solver.cpp
+)
+target_link_libraries(ip_solver
+    Eigen3::Eigen 
+)
