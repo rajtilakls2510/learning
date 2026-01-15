@@ -128,19 +128,18 @@ public:
                                      (gv * cos_theta * m_ + control * sin_theta -
                                       mp * l * pow(theta_dot * cos_theta, 2) +
                                       mp * l * pow(theta_dot * sin_theta, 2)) /
-                                     deno +
-                             36 *
+                                     (l * deno) -
+                             18 *
                                      (gv * sin_theta * m_ - control * cos_theta -
                                       mp * l * pow(theta_dot, 2) * sin_theta * cos_theta) *
-                                     (mp * sin_theta * cos_theta) / pow(deno, 2);
+                                     (mp * sin_theta * cos_theta) / (l * pow(deno, 2));
 
-        double dtdotdot_dtdot = -(6 * mp * theta_dot * sin_theta * cos_theta) /
-                                (4 * m_ - 3 * mp * pow(cos_theta, 2));
+        double dtdotdot_dtdot = -(6 * mp * theta_dot * sin_theta * cos_theta) / deno;
 
         double theta_dot_dot = 3 *
                                (gv * sin_theta * m_ - control * cos_theta -
                                 mp * l * pow(theta_dot, 2) * sin_theta * cos_theta) /
-                               (l * (4 * m_ - 3 * mp * pow(cos_theta, 2)));
+                               (l * deno);
 
         double dxdotdot_dt = mp * l *
                              (pow(theta_dot, 2) * cos_theta + theta_dot_dot * sin_theta -
@@ -443,7 +442,7 @@ public:
 
             if (is_converged(states, controls, prev_states, prev_controls) &&
                 !problem.within_constraints(states, controls)) {
-                rho = min(rho * 1.5, 1e2);
+                rho = min(rho * 1.0, 1e2);
             }
         }
 
@@ -460,7 +459,7 @@ int main(int argc, char* argv[]) {
     double f_extreme = 5.0;
     Eigen::MatrixXd Q(4, 4);  // = 1 * Eigen::Matrix4d::Identity();
     Q << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0;
-    Q = 1.0* Q;
+    Q = 1.0 * Q;
     double R = 0.0;
     double mp = 1.0, mc = 1.0, l = 1.0, gv = 9.8;
     double del_t = 0.1;
@@ -561,7 +560,7 @@ int main(int argc, char* argv[]) {
     Eigen::VectorXd solved_states(4 * (H + 1)), solved_controls(H);
     // solver.solve_al_subproblem(
     //         current_states, current_controls, nu, lmda, 1.0, solved_states, solved_controls);
-    solver.solve(current_states, current_controls, 1.0, solved_states, solved_controls);
+    solver.solve(current_states, current_controls, 0.1, solved_states, solved_controls);
     std::cout << "Solved States: \n";  // << solved_states;
     for (size_t t = 0; t < H + 1; t++) {
         std::cout << solved_states(4 * t) << "," << solved_states(4 * t + 1) << ","
