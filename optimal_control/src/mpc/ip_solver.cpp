@@ -55,8 +55,8 @@ public:
     Eigen::VectorXd dcostdx(const Eigen::VectorXd& states, const Eigen::VectorXd& controls) {
         Eigen::VectorXd dcdx(5 * n_horizon);
         for (size_t t = 0; t < n_horizon; t++) {
-            // dcdx.segment<4>(t*4) = Q * states.row(t+1).transpose();
-            dcdx.segment<4>(t * 4) = Q * states.segment<4>(4 * (t + 1));
+            Eigen::Vector4d state_diff = states.segment<4>(4 * (t + 1)) - state_ref;
+            dcdx.segment<4>(t * 4) = Q * state_diff;
         }
         dcdx.segment(4 * n_horizon, controls.size()) = R * controls;
         return dcdx;
@@ -219,6 +219,21 @@ public:
         return dgdx_;
     }
 
+    bool within_constraints(const Eigen::VectorXd& states, const Eigen::VectorXd& controls) {
+        // Check Equality constraints
+        Eigen::VectorXd hx = h(states, controls);
+        for (int i = 0; i < 4 * n_horizon; i++) {
+            if (abs(hx(i)) > 1e-6) return false;
+        }
+
+        // Check Inequality constraints
+        Eigen::VectorXd gx = g(states, controls);
+        for (int i = 0; i < 2 * n_horizon; i++) {
+            if (gx(i) > 0) return false;
+        }
+        return true;
+    }
+
     size_t state_dim{4}, n_horizon;
     Eigen::VectorXd state_ref;
     Eigen::MatrixXd Q;
@@ -226,28 +241,249 @@ public:
     double mp, gv, mc, l, dt;
 };
 
+class ALSolver {
+public:
+    ALSolver(InversePendulumProblem problem, int n_horizon)
+        : problem(problem), n_horizon(n_horizon) {}
+
+    bool is_pos_def(const Eigen::MatrixXd& H) {
+        Eigen::LLT<Eigen::MatrixXd> llt(H);
+        return llt.info() == Eigen::Success;
+    }
+
+    Eigen::VectorXd dldx(
+            const Eigen::VectorXd& states,
+            const Eigen::VectorXd& controls,
+            const Eigen::VectorXd& nu,
+            const Eigen::VectorXd& lmda,
+            const double rho) {
+        Eigen::MatrixXd dhdx_ = problem.dhdx(states, controls);
+        const auto gx = problem.g(states, controls);
+        Eigen::VectorXd C = (lmda + rho * gx).cwiseMax(0.0);
+
+        Eigen::VectorXd dfdx_ = problem.dcostdx(states, controls);
+        // std::cout << "dfdx: " << dfdx_ << "\n";
+        Eigen::VectorXd h_ = problem.h(states, controls);
+        Eigen::MatrixXd dgdx_ = problem.dgdx(states, controls);
+
+        return dfdx_ + dhdx_.transpose() * (nu + rho * h_) + dgdx_.transpose() * C;
+    }
+
+    double al(
+            const Eigen::VectorXd& states,
+            const Eigen::VectorXd& controls,
+            const Eigen::VectorXd& nu,
+            const Eigen::VectorXd& lmda,
+            const double rho) {
+        Eigen::VectorXd C =
+                (lmda + rho * problem.g(states, controls)).cwiseMax(0.0).array().square();
+        double f_ = problem.cost(states, controls);
+        // std::cout << "f: " << f_ << "\n";
+        Eigen::VectorXd h_ = problem.h(states, controls);
+        // std::cout << "h_: " << h_ << "\n";
+        double al_ = f_ + nu.transpose() * h_ + 0.5 * rho * h_.norm() +
+                     0.5 / rho * (C.sum() - lmda.squaredNorm());
+        // std::cout << "al_: " << al_ << "\n";
+        return al_;
+    }
+
+    void solve_al_subproblem(
+            const Eigen::VectorXd& initial_states,
+            const Eigen::VectorXd& initial_controls,
+            const Eigen::VectorXd& nu,
+            const Eigen::VectorXd& lmda,
+            const double rho,
+            Eigen::VectorXd& final_states,
+            Eigen::VectorXd& final_controls) {
+        Eigen::VectorXd states = initial_states;
+        Eigen::VectorXd controls = initial_controls;
+
+        Eigen::VectorXd g = dldx(states, controls, nu, lmda, rho);
+        double prev_g_norm = INFINITY;
+
+        // std::cout << "states: " << states << "\ncontrols: " << controls << "\n";
+
+        while (abs(g.norm() - prev_g_norm) > 1e-8) {
+            std::cout << "Err: " << abs(g.norm() - prev_g_norm) << "\n";
+            prev_g_norm = g.norm();
+
+            // std::cout << "g: " << g << "\n";
+
+            // Find Active inequality constraints
+            Eigen::MatrixXd dgdx_ = problem.dgdx(states, controls);
+            // std::cout << "dgdx_: " << dgdx_ << "\n";
+            Eigen::VectorXd g_ = problem.g(states, controls);
+            // std::cout << "g_: " << g_ << "\n";
+
+            Eigen::VectorXd m = ((lmda + rho * g_).array() > 0.0).cast<double>();
+            // std::cout << "m: " << m << "\n";
+            Eigen::MatrixXd C = m.asDiagonal() * dgdx_;
+            // std::cout << "C: " << C << "\n";
+
+            // Compute Hessian
+            Eigen::MatrixXd d2fdx2 = problem.d2costdx2(states, controls);
+            Eigen::MatrixXd dhdx_ = problem.dhdx(states, controls);
+            Eigen::MatrixXd H = d2fdx2 + rho * dhdx_.transpose() * dhdx_ + rho * C.transpose() * C;
+
+            // Regularize Hessian until PD
+
+            double beta = 1e-6;
+            Eigen::MatrixXd I = Eigen::MatrixXd::Identity(H.rows(), H.cols());
+            while (!is_pos_def(H)) {
+                H += beta * I;
+                beta *= 10.0;
+                // std::cout << "beta: " << beta << "\n";
+            }
+
+            // std::cout << "H shape: " << H.rows() << " x " << H.cols() << std::endl;
+
+            // std::cout << "g shape: " << g.rows() << " x " << g.cols() << std::endl;
+
+            // std::cout << "states shape: " << states.rows() << " x " << states.cols() <<
+            // std::endl;
+
+            // Solve KKT system
+            Eigen::VectorXd dx = -H.ldlt().solve(g);
+            // std::cout << "dx: " << dx << "\n";
+            Eigen::VectorXd dstates(4 * (n_horizon + 1));
+            dstates.setZero();
+            dstates.segment(4, 4 * n_horizon) = dx.segment(0, 4 * n_horizon);
+            Eigen::VectorXd dcontrols = dx.segment(4 * n_horizon, n_horizon);
+
+            // Backtracking line search using merit function
+            double alpha = 1.0;
+            while (al(states + alpha * dstates, controls + alpha * dcontrols, nu, lmda, rho) >
+                   al(states, controls, nu, lmda, rho) +
+                           0.01 * alpha * g.transpose() * dx) {  //&& alpha > 1e-8) {
+                // std::cout
+                //         << "al1: "
+                //         << al(states + alpha * dstates, controls + alpha * dcontrols, nu, lmda,
+                //         rho)
+                //         << "\n";
+                // std::cout << "al2: "
+                //           << al(states, controls, nu, lmda, rho) * 0.01 * alpha * g.transpose() *
+                //           dx
+                //           << "\n";
+                alpha *= 0.5;
+                // std::cout << "alpha: " << alpha << "\n";
+            }
+
+            states = states + alpha * dstates;
+            controls = controls + alpha * dcontrols;
+
+            // std::cout << "states: " << states << "\ncontrols: " << controls << "\n";
+            std::cout << "states: \n";
+            for (size_t t = 0; t < n_horizon + 1; t++) {
+                std::cout << states(4 * t) << "," << states(4 * t + 1) << "," << states(4 * t + 2)
+                          << "," << states(4 * t + 3) << "\n";
+            }
+            std::cout << "Solved Controls: ";  // << solved_controls;
+            for (size_t t = 0; t < n_horizon; t++) {
+                std::cout << controls(t) << ",";
+            }
+            std::cout << "\n" << std::flush;
+            g = dldx(states, controls, nu, lmda, rho);
+        }
+
+        final_states = states;
+        final_controls = controls;
+    }
+
+    void al_step(
+            Eigen::VectorXd& states,
+            Eigen::VectorXd& controls,
+            Eigen::VectorXd& nu,
+            Eigen::VectorXd& lmda,
+            const double rho) {
+        Eigen::VectorXd states_, controls_;
+        solve_al_subproblem(states, controls, nu, lmda, rho, states_, controls_);
+        states = states_;
+        controls = controls_;
+
+        nu = nu + rho * problem.h(states, controls);
+
+        lmda = (lmda + rho * problem.g(states, controls)).cwiseMax(0.0);
+    }
+
+    bool is_converged(
+            const Eigen::VectorXd& states,
+            const Eigen::VectorXd& controls,
+            const Eigen::VectorXd& prev_states,
+            const Eigen::VectorXd& prev_controls) {
+        return abs(problem.cost(prev_states, prev_controls) - problem.cost(states, controls)) <=
+               1e-6;
+    }
+
+    void solve(
+            const Eigen::VectorXd& initial_states,
+            const Eigen::VectorXd& initial_controls,
+            double rho,
+            Eigen::VectorXd& final_states,
+            Eigen::VectorXd& final_controls) {
+        Eigen::VectorXd states = initial_states;
+        Eigen::VectorXd controls = initial_controls;
+
+        // TODO: Change to lagrange variables warm start
+        Eigen::VectorXd nu(4 * n_horizon);
+        nu.setZero();
+        Eigen::VectorXd lmda(2 * n_horizon);
+        lmda.setZero();
+
+        Eigen::VectorXd prev_states(4 * (n_horizon + 1)), prev_controls(n_horizon);
+        prev_states.setConstant(INFINITY);
+        prev_controls.setConstant(INFINITY);
+
+        int i = 0;
+        while (!is_converged(states, controls, prev_states, prev_controls) ||
+               !problem.within_constraints(states, controls)) {
+            prev_states = states;
+            prev_controls = controls;
+            al_step(states, controls, nu, lmda, rho);
+            std::cout << "Iters: " << (i++) << "\n";
+
+            if (is_converged(states, controls, prev_states, prev_controls) &&
+                !problem.within_constraints(states, controls)) {
+                rho = min(rho * 1.5, 1e2);
+            }
+        }
+
+        final_states = states;
+        final_controls = controls;
+    }
+
+    InversePendulumProblem problem;
+    int n_horizon;
+};
+
 int main(int argc, char* argv[]) {
-    int H = 6;
-    double f_extreme = 0.5;
-    Eigen::MatrixXd Q = 4 * Eigen::Matrix4d::Identity();
-    double R = 2.0;
+    int H = 50;
+    double f_extreme = 5.0;
+    Eigen::MatrixXd Q(4, 4);  // = 1 * Eigen::Matrix4d::Identity();
+    Q << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0;
+    Q = 1.0* Q;
+    double R = 0.0;
     double mp = 1.0, mc = 1.0, l = 1.0, gv = 9.8;
-    double del_t = 0.01;
+    double del_t = 0.1;
 
     Eigen::VectorXd state_ref(4);
-    state_ref << 0.0, 0.0, 0.0, 0.0;
+    state_ref << 0.1, 0.0, 0.0, 0.0;
 
     InversePendulumProblem problem(state_ref, Q, R, H, f_extreme, mp, gv, mc, l, del_t);
 
     Eigen::VectorXd current_states((H + 1) * 4);
+    current_states.setZero();
     Eigen::VectorXd current_controls(H);
-    for (int t = 0; t < H + 1; ++t) {
-        current_states(t * 4 + 0) = H + 1 - t;
-        current_states(t * 4 + 1) = 0.0;
-        current_states(t * 4 + 2) = 0.0;
-        current_states(t * 4 + 3) = 0.0;
+    current_controls.setZero();
+    for (int t = 0; t < H; t++) {
+        current_states.segment(4 * (t + 1), 4) +=
+                del_t * problem.d(current_states.segment(4 * t, 4), current_controls(t));
     }
-    current_controls.setOnes();
+    // for (int t = 0; t < H + 1; ++t) {
+    //     current_states(t * 4 + 0) = H + 1 - t;
+    //     current_states(t * 4 + 1) = 0.0;
+    //     current_states(t * 4 + 2) = 0.0;
+    //     current_states(t * 4 + 3) = 0.0;
+    // }
     double f = problem.cost(current_states, current_controls);
     std::cout << "Cost: " << f << "\n";
 
@@ -296,6 +532,46 @@ int main(int argc, char* argv[]) {
 
     Eigen::MatrixXd dhdx_ = problem.dhdx(current_states, current_controls);
     std::cout << "dhdx: \n" << dhdx_ << "\n";
+
+    // // Test Dynamics
+    // Eigen::VectorXd state(4);
+    // state << 0.0, 0.0, 0.0, 0.0;
+    // std::cout << "initial state: " << state(0) << "," << state(1) << "," << state(2) << ","
+    //           << state(3) << "\n";
+    // for (size_t t = 0; t < H; t++) {
+    //     double control = t % 2 == 0 ? 1 : -1;
+    //     state = state + del_t * problem.d(state, control);
+    //     std::cout << "t: " << t << " control: " << control << " state: " << state(0) << ","
+    //               << state(1) << "," << state(2) << "," << state(3) << "\n";
+    // }
+
+    ALSolver solver(problem, H);
+
+    Eigen::VectorXd nu(4 * H);
+    nu.setZero();
+    Eigen::VectorXd lmda(2 * H);
+    lmda.setZero();
+
+    Eigen::MatrixXd dldx_ = solver.dldx(current_states, current_controls, nu, lmda, 1.0);
+    std::cout << "dldx: \n" << dldx_ << "\n";
+
+    double al = solver.al(current_states, current_controls, nu, lmda, 1.0);
+    std::cout << "al: " << al << "\n";
+
+    Eigen::VectorXd solved_states(4 * (H + 1)), solved_controls(H);
+    // solver.solve_al_subproblem(
+    //         current_states, current_controls, nu, lmda, 1.0, solved_states, solved_controls);
+    solver.solve(current_states, current_controls, 1.0, solved_states, solved_controls);
+    std::cout << "Solved States: \n";  // << solved_states;
+    for (size_t t = 0; t < H + 1; t++) {
+        std::cout << solved_states(4 * t) << "," << solved_states(4 * t + 1) << ","
+                  << solved_states(4 * t + 2) << "," << solved_states(4 * t + 3) << "\n";
+    }
+    std::cout << "Solved Controls: ";  // << solved_controls;
+    for (size_t t = 0; t < H; t++) {
+        std::cout << solved_controls(t) << ",";
+    }
+    std::cout << "\n" << std::flush;
 
     return 0;
 }
