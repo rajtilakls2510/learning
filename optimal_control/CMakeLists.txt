@@ -98,3 +98,11 @@ add_executable(ip_solver
 target_link_libraries(ip_solver
     Eigen3::Eigen 
 )
+
+
+add_executable(bi_solver 
+    src/mpc/bi_solver.cpp
+)
+target_link_libraries(bi_solver
+    Eigen3::Eigen 
+)

@@ -422,9 +422,9 @@ public:
 
         // TODO: Change to lagrange variables warm start
         Eigen::VectorXd nu(4 * n_horizon);
-        nu.setOnes();
+        nu.setZero();
         Eigen::VectorXd lmda(2 * n_horizon);
-        lmda.setOnes();
+        lmda.setZero();
 
         Eigen::VectorXd prev_states(4 * (n_horizon + 1)), prev_controls(n_horizon);
         prev_states.setConstant(INFINITY);
@@ -473,7 +473,8 @@ int main(int argc, char* argv[]) {
     Eigen::VectorXd current_controls(H);
     current_controls.setZero();
     for (int t = 0; t < H; t++) {
-        current_states.segment(4 * (t + 1), 4) +=
+        current_states.segment(4 * (t + 1), 4) =
+                current_states.segment(4 * t, 4) +
                 del_t * problem.d(current_states.segment(4 * t, 4), current_controls(t));
     }
     // for (int t = 0; t < H + 1; ++t) {
