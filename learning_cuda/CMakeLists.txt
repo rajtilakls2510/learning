@@ -10,3 +10,6 @@ target_link_libraries(reduce_sum cuda cudart)
 
 add_executable(transpose src/transpose.cu)
 target_link_libraries(transpose cuda cudart)
+
+add_executable(matrix_multiply src/matrix_multiply.cu)
+target_link_libraries(matrix_multiply cuda cudart)
